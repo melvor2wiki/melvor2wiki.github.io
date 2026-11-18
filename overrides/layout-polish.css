@@ -1,0 +1,29 @@
+/* Align complete icon/text tokens to the surrounding text line. */
+.row-link { display:inline; vertical-align:baseline; line-height:inherit; }
+.icon { display:inline-block; vertical-align:-.3em; flex-shrink:0; }
+.row-link>.icon { margin-right:4px; }
+.requirement,.level-line { display:flex; align-items:center; justify-content:flex-start; gap:4px; line-height:1.6; }
+.requirement>.row-link,.level-line>a { display:inline-flex; align-items:center; }
+.requirement .icon,.level-line .icon { display:block; margin:0; width:24px; height:24px; }
+.home-navigation .row-link,.home-navigation strong { display:inline-block; vertical-align:middle; line-height:1.6; }
+.home-navigation .row-link>.icon { vertical-align:middle; margin-top:-2px; }
+.loot-sources td:first-child { text-align:left; }
+.loot-sources td { white-space:nowrap; }
+.loot-sources th,.loot-sources td { padding:7px 9px; }
+/* Timeless wiki palette. Only the sidebar wordmark uses a different font. */
+:root { --bg:#2c343f; --nav:#323942; --panel:#465160; --line:#626c78; --ink:#eee; --muted:#ccc; --gold:#29d; }
+body { background:#232a35; color:#eee; }
+a,a:visited { color:#29d; }
+a:hover,a:focus-visible { color:#5bf; }
+.wiki-content { background:#2c343f; border-left:0; border-right:0; }
+.wiki-sidebar { background:#232a35; }
+.sidebar-group { background:#323942; padding:20px 16px; margin:0 0 15px; }
+.sidebar-group h3 { color:#eee; border-bottom:2px solid #c8ccd1; padding-bottom:5px; }
+.sidebar-group a { padding:3px 0; }
+.sidebar-build { margin:16px 0; }
+.wiki-rightbar>section,.wiki-rightbar>div:not(:empty) { background:#323942; border:0; box-shadow:none; }
+.wiki-rightbar h3 { color:#eee; border-bottom:2px solid #c8ccd1; }
+.wiki-logo { padding:0 0 26px; margin:0; gap:0; }
+.wiki-logo img { width:120px; height:120px; object-fit:contain; }
+.wiki-logo strong { display:block; color:#fff; font-family:Arial,Helvetica,sans-serif; font-size:19px; font-weight:800; line-height:.95; text-transform:uppercase; letter-spacing:-.3px; max-width:150px; }
+.wiki-logo strong::after { content:'IDLE WIKI'; display:block; font-size:17px; font-weight:400; letter-spacing:0; margin-top:3px; }

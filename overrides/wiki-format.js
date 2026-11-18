@@ -2,11 +2,11 @@
 function publicFraction(p) {
   if (!(p > 0)) return '0';
   if (p >= 1) return '1/1';
-  return '1/' + new Intl.NumberFormat('en-US', {maximumFractionDigits: 3}).format(1 / p);
+  return '1/' + polishNumber(1 / p);
 }
 function publicChanceDisplay(p) {
   if (!Number.isFinite(p)) return '—';
-  const percent = p > 0 && p * 100 < 0.001 ? '&lt;0.001%' : new Intl.NumberFormat('en-US', {maximumFractionDigits: 3}).format(p * 100) + '%';
+  const percent = polishNumber(p*100) + '%';
   return publicFraction(p) + ' (' + percent + ')';
 }
 function link(node, withIcon = false) {
@@ -29,9 +29,9 @@ function itemEntry(value, source, withChance = false) {
   return formatV2OriginalItemEntry(value, source, withChance);
 }
 function formatV2Percent(text) {
-  return String(text).replace(/(-?\d[\d,]*\.\d{4,})%/g, (_, amount) => {
+  return String(text).replace(/(-?\d[\d,]*\.\d{3,})%/g, (_, amount) => {
     const n = Number(amount.replace(/,/g, ''));
-    return n > 0 && n < 0.001 ? '&lt;0.001%' : new Intl.NumberFormat('en-US', {maximumFractionDigits: 3}).format(n) + '%';
+    return polishNumber(n) + '%';
   });
 }
 function table(headers, rows, sortable = false) {
@@ -140,6 +140,6 @@ function publicFinishPage() {
   const walker = document.createTreeWalker(main, NodeFilter.SHOW_TEXT);
   while (walker.nextNode()) {
     const text = walker.currentNode;
-    if (!text.parentElement.closest('script,style,input,textarea,code,pre')) text.textContent = formatV2Percent(text.textContent).replace(/&lt;/g, '<').replace(/\s*·\s*(?=Level\b)/g,' ');
+    if (!text.parentElement.closest('script,style,input,textarea,code,pre')) text.textContent = polishDecimalText(formatV2Percent(text.textContent)).replace(/&lt;/g, '<').replace(/\s*·\s*(?=Level\b)/g,' ');
   }
 }

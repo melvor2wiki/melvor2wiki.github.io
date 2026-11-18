@@ -171,7 +171,7 @@ function publicItem(n) {
   }
   if (loot.length) {
     sourceChildren.push({id:'loot', title:'Loot'});
-    sourceBody.push('<h3 id="loot">Loot</h3>' + table(['Source','Skill','Requirements','Quantity','Chance / Trigger'],loot.map(r => [link(publicCanonical(r.from),true),publicSkills(r.from),requirements(r.from),publicQty(r.parent || {}),escape(publicRefChance(r))]),true));
+    sourceBody.push('<h3 id="loot">Loot</h3>' + polishLootSources(loot));
   }
   if (sourceBody.length) sections.push({id:'sources',title:'Item Sources',children:sourceChildren,body:sourceBody.join('')});
   if (uses.length) sections.push({id:'uses',title:'Uses',body:table(['Product / Action','Skill','Requirements','XP','Ingredients / Cost'],uses.map(r => {
