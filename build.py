@@ -71,7 +71,7 @@ app+='\n'+(root/'overrides/training-route.js').read_text(encoding='utf-8')
 guide_nav = """    '<a href="#/guides">Skill Training Guides</a>',\n"""
 assert app.count(guide_nav) == 1
 app = app.replace(guide_nav, guide_nav + """    moneyNavLink(),
-    '<a href="#/idle">Can I Idle?</a>',
+    '<a class="row-link" href="#/idle">' + combatSwordsIcon() + 'Can I Idle?</a>',
 """, 1)
 for character in '\u2013\u2014\u2019\u00d7\u00b7':
     assert character.encode('utf-8').decode('cp1252') not in app, 'Corrupted text in app.js'

@@ -16,7 +16,12 @@ function link(node, withIcon = false) {
   }
   return formatV2OriginalLink(node, withIcon);
 }
+function combatSwordsIcon() {
+  const src = imageSource('res://Assets/Icons/Combat.png');
+  return src ? '<img class="icon" alt="" src="' + src + '">' : '';
+}
 function icon(node) {
+  if (node.type === 'CombatArea' && bare(node.data.Category) === 'CombatAreas') return combatSwordsIcon();
   if (node.type !== 'ShopPurchase' && (!node.image || /missing_artwork|placeholder/i.test(node.image)) && !node.data.CoverBackground) return '';
   if(node.type!=='ShopPurchase' && !imageSource(node.data.CoverBackground||node.image))return '';
   return formatV2OriginalIcon(node);
