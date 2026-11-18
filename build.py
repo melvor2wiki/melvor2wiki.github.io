@@ -25,16 +25,20 @@ app=app[:start]+(root/'overrides/public-suggest.js').read_text(encoding='utf-8-s
 # Keep shared primitives available to the focused reader-facing overrides.
 for original, saved in [('link','formatV2OriginalLink'),('icon','formatV2OriginalIcon'),('table','formatV2OriginalTable'),('itemEntry','formatV2OriginalItemEntry'),
                         ('wikiTaskCondition','formatV2OriginalTaskCondition'),
+                        ('wikiSkillCoreSections','cleanOriginalCoreSections'),
+                        ('wikiReferenceOrder','cleanOriginalReferenceOrder'),
+                        ('wikiInfobox','cleanOriginalInfobox'),
+                        ('wikiBonusText','cleanOriginalBonusText'),
                         ('publicFinishPage','formatV2OriginalFinishPage')]:
     marker='function '+original+'('
     assert app.count(marker)==1, 'Unexpected primitive declaration: '+original
     app=app.replace(marker,'function '+saved+'(',1)
-for module in ['wiki-format','training-guides','entity-pages']:
+for module in ['wiki-format','training-guides','entity-pages','skill-cleanup']:
     app+='\n'+(root/'overrides'/f'{module}.js').read_text(encoding='utf-8-sig')
 app_path.write_text(app,encoding='utf-8')
 style=out/'style.css'
 style.write_text(style.read_text(encoding='utf-8')+'\n'+(root/'overrides/suggest.css').read_text(encoding='utf-8-sig'),encoding='utf-8')
-for module in ['wiki-format','training-guides','entity-pages']:
+for module in ['wiki-format','training-guides','entity-pages','skill-cleanup']:
     style.write_text(style.read_text(encoding='utf-8')+'\n'+(root/'overrides'/f'{module}.css').read_text(encoding='utf-8-sig'),encoding='utf-8')
 html=out/'index.html'
 html.write_text(html.read_text(encoding='utf-8').replace("connect-src 'none'",'connect-src https://ijmztvsjdzypvxnlicbf.supabase.co'),encoding='utf-8')

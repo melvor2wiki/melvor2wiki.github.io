@@ -1,0 +1,6 @@
+.requirement .row-link,.requirement > a { vertical-align:middle; }
+.requirement { line-height:1.7; }
+.requirement .icon { display:inline-block; vertical-align:middle; width:24px; height:24px; flex-shrink:0; }
+.requirement .row-link { display:inline-flex; align-items:center; gap:4px; }
+.wiki-infobox .bonus-line { white-space:normal; }
+.table-shared { max-width:85ch; text-align:left; }

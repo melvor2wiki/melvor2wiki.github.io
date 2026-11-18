@@ -10,6 +10,7 @@ function publicChanceDisplay(p) {
   return publicFraction(p) + ' (' + percent + ')';
 }
 function link(node, withIcon = false) {
+  if (/^(AstrologyNode|AstrologyStarNode|MasteryGuildBonus|MasteryGuildRank)$/.test(node?.type)) return (withIcon ? icon(node) : '') + escape(node.name);
   if (node?.type === 'Currency' && bare(node.id) === 'GoldPieces' && withIcon) {
     return '<a class="row-link currency-icon" href="' + detailUrl(node) + '" title="Gold" aria-label="Gold">' + icon(node) + '</a>';
   }
@@ -17,6 +18,7 @@ function link(node, withIcon = false) {
 }
 function icon(node) {
   if (node.type !== 'ShopPurchase' && (!node.image || /missing_artwork|placeholder/i.test(node.image)) && !node.data.CoverBackground) return '';
+  if(node.type!=='ShopPurchase' && !imageSource(node.data.CoverBackground||node.image))return '';
   return formatV2OriginalIcon(node);
 }
 function itemEntry(value, source, withChance = false) {
@@ -33,7 +35,17 @@ function formatV2Percent(text) {
   });
 }
 function table(headers, rows, sortable = false) {
-  const names = headers.map(h => String(h).replace(/^Base XP$/, 'XP').replace(/^Base Chance$|^Chance \/ Trigger$/, 'Chance'));
+  let names = headers.map(h => String(h).replace(/^Base XP$/, 'XP').replace(/^Base Chance$|^Chance \/ Trigger$/, 'Chance'));
+  const text = c => String(c && typeof c === 'object' ? c.html : c ?? '').replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').trim();
+  const omit = new Set(), shared = [], originalFields = headers.map((_,i)=>i);
+  names.forEach((heading,i) => {
+    const values = rows.map(r=>text(r[i]));
+    if(rows.length && values.every(v=>!v || /^[—–-]$/.test(v))) omit.add(i);
+    else if(rows.length > 1 && !/^(?:Name|Item|Potion|Product|Source|Skill|Monster|Pet|Rank|Objective|Task|Action|Levels?|Tier)/i.test(heading) && values.every(v=>v===values[0]) && values[0] && !/^(?:XP|XP\/s|Value|Sell Price|Quantity|Qty|Points|Count)$/i.test(heading)) {
+      omit.add(i);shared.push('<p class="table-shared"><strong>'+escape(heading)+':</strong> '+String(rows[0][i]&&typeof rows[0][i]==='object'?rows[0][i].html:rows[0][i])+'</p>');
+    }
+  });
+  if(omit.size){names=names.filter((_,i)=>!omit.has(i));rows=rows.map(r=>r.filter((_,i)=>!omit.has(i)));}
   const prepared = rows.map(row => row.map((cell, i) => {
     const obj = cell && typeof cell === 'object';
     let html = String(obj ? cell.html : cell ?? '—');
@@ -45,7 +57,8 @@ function table(headers, rows, sortable = false) {
     }
     return obj ? {...cell, html} : html;
   }));
-  return formatV2OriginalTable(names, prepared, sortable);
+  const keptFields=originalFields.filter(i=>!omit.has(i));
+  return shared.join('') + formatV2OriginalTable(names, prepared, sortable).replace(/data-sort-field="(\d+)"/g,(_,i)=>'data-sort-field="'+keptFields[Number(i)]+'"');
 }
 function formatV2Reference(id, type, source) {
   const n = publicNode(type, id) || targets(id, [type], source)[0];
@@ -61,6 +74,10 @@ function wikiTaskCondition(condition, task) {
   if (type === 'CurrencyStatistic') return ref('Currency') + ' ' + amount + (/Sale|Sold/.test(d.Statistic) ? ' earned from sales' : /Spent/.test(d.Statistic) ? ' spent' : ' gained');
   if (type === 'EnemyStatistic') return ref('Enemy') + ' ×' + amount + (/TasksCompleted/.test(d.Statistic) ? ' Slayer tasks completed' : ' defeated');
   if (type === 'DungeonStatistic') return ref('Dungeon') + ' ×' + amount + ' completed';
+  if (type === 'FarmingRecipe') {
+    const recipe=publicNode('FarmingRecipe',d.Recipe),item=publicNode('Item',recipe?.data.Products?.[0]?.Item||d.Recipe);
+    return (item?link(item,true):formatV2Reference(d.Recipe,'FarmingRecipe',task))+' ×'+amount+' harvested';
+  }
   if (type === 'HuntingAnimalStatistic') return ref('Animal', 'HuntingAnimal') + ' ×' + amount + ' trapped';
   if (type === 'EquipmentSlotEquipped') return 'Equip an item in the ' + escape(human(d.Slot).toLowerCase()) + ' slot';
   if (type === 'Level') {
@@ -123,6 +140,6 @@ function publicFinishPage() {
   const walker = document.createTreeWalker(main, NodeFilter.SHOW_TEXT);
   while (walker.nextNode()) {
     const text = walker.currentNode;
-    if (!text.parentElement.closest('script,style,input,textarea,code,pre')) text.textContent = formatV2Percent(text.textContent).replace(/&lt;/g, '<');
+    if (!text.parentElement.closest('script,style,input,textarea,code,pre')) text.textContent = formatV2Percent(text.textContent).replace(/&lt;/g, '<').replace(/\s*·\s*(?=Level\b)/g,' ');
   }
 }

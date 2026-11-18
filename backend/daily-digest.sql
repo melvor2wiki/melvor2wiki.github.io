@@ -1,4 +1,4 @@
--- PREPARED ONLY. Run as postgres after deploying the intake without immediate mail.
+-- Daily summary and private preview. Run as postgres after updating the intake.
 -- Existing feedback.sql must already be installed. No email endpoint/key is embedded.
 -- Enable pg_cron via the Dashboard first if the server requires preload configuration.
 begin;
@@ -9,7 +9,8 @@ revoke execute on all functions in schema net from public,anon,authenticated,ser
 
 create table if not exists feedback_private.digest_runs (
  id uuid primary key default gen_random_uuid(),
- local_day date not null unique,
+ local_day date not null,
+ is_test boolean not null default false,
  created_at timestamptz not null default now(),
  completed_at timestamptz,
  state text not null check(state in ('empty','pending','confirmed','failed','ambiguous')),
@@ -26,6 +27,9 @@ create table if not exists feedback_private.digest_items (
  feedback_id uuid not null,
  primary key(run_id,feedback_id)
 );
+alter table feedback_private.digest_runs add column if not exists is_test boolean not null default false;
+alter table feedback_private.digest_runs drop constraint if exists digest_runs_local_day_key;
+create unique index if not exists digest_runs_daily_unique on feedback_private.digest_runs(local_day) where not is_test;
 create index if not exists digest_items_feedback_idx on feedback_private.digest_items(feedback_id);
 alter table feedback_private.digest_runs enable row level security;
 alter table feedback_private.digest_items enable row level security;
@@ -67,20 +71,21 @@ begin
  end loop;
 end $$;
 
-create or replace function feedback_private.digest_send_due()
+create or replace function feedback_private.digest_dispatch(p_test boolean default false)
 returns void language plpgsql security invoker set search_path='' as $$
 declare
  local_time timestamp:=now() at time zone 'Europe/Rome';
  cfg feedback_private.settings%rowtype;
  run uuid; total bigint; pages bigint; page_rows integer:=0; shown integer:=0;
  row_data record; summary text:=''; excerpts text:=''; line text; body jsonb;
- req bigint; counted bigint:=0;
+ req bigint; counted bigint:=0; historical bigint;
 begin
  perform pg_catalog.pg_advisory_xact_lock(19371,709);
  perform feedback_private.digest_reconcile();
  -- Cron wakes hourly UTC. Rome noon is 11:00 UTC winter / 10:00 UTC summer.
- if extract(hour from local_time)<>12 then return; end if;
- if exists(select 1 from feedback_private.digest_runs where local_day=local_time::date) then return; end if;
+ if not p_test and extract(hour from local_time)<>12 then return; end if;
+ if p_test and exists(select 1 from feedback_private.digest_runs where is_test and created_at>now()-interval '1 hour') then return; end if;
+ if not p_test and exists(select 1 from feedback_private.digest_runs where local_day=local_time::date and not is_test) then return; end if;
  if exists(select 1 from feedback_private.digest_runs where state='pending') then return; end if;
  select * into cfg from feedback_private.settings where id=true;
  if not found or not cfg.mail_enabled or cfg.mail_endpoint is null then return; end if;
@@ -92,20 +97,17 @@ begin
  if cfg.inbox_url not like 'https://supabase.com/dashboard/project/%' or octet_length(cfg.inbox_url)>2200 then
   raise exception 'Digest requires a private Supabase inbox link';
  end if;
- insert into feedback_private.digest_runs(local_day,state) values(local_time::date,'pending') returning id into run;
+ insert into feedback_private.digest_runs(local_day,state,is_test) values(local_time::date,'pending',p_test) returning id into run;
  -- Membership is the watermark: include ALL persisted rows not in any confirmed
  -- digest, regardless of status/time. A concurrent insert missed by this snapshot
  -- remains eligible tomorrow, even if its created_at predates this transaction.
  insert into feedback_private.digest_items(run_id,feedback_id)
  select run,f.id from public.feedback_inbox f where not exists(
   select 1 from feedback_private.digest_items i join feedback_private.digest_runs r on r.id=i.run_id
-  where i.feedback_id=f.id and r.state='confirmed'
+  where i.feedback_id=f.id and r.state='confirmed' and not r.is_test
  );
  select count(*) into total from feedback_private.digest_items where run_id=run;
- if total=0 then
-  update feedback_private.digest_runs set state='empty',completed_at=now() where id=run;
-  return;
- end if;
+ select count(*) into historical from public.feedback_inbox;
  select count(distinct f.page) into pages from public.feedback_inbox f
  join feedback_private.digest_items i on i.feedback_id=f.id where i.run_id=run;
  -- Bounded byte budgets (UTF-8 + JSON escaping) protect provider payload size.
@@ -131,10 +133,11 @@ begin
   excerpts:=excerpts||line; shown:=shown+1;
  end loop;
  body:=jsonb_build_object(
-  '_subject',format('[Melvor 2 Wiki] Daily feedback: %s suggestions - %s',total,local_time::date),
+  '_subject',format('[Melvor 2 Wiki]%s %s new suggestions - %s',case when p_test then ' [TEST]' else '' end,total,local_time::date),
   '_captcha','false','_template','table','_url','https://melvor2wiki.github.io/',
-  'summary',format('All %s suggestions across %s pages not covered by a confirmed earlier digest. %s excerpts shown; %s without individual excerpt. Page labels and excerpts may be shortened. Full original messages remain in the private inbox. A previously unconfirmed send may have arrived; those suggestions can recur.',total,pages,shown,total-shown),
-  'per_page_counts',summary,'suggestion_excerpts',excerpts,'private_inbox',cfg.inbox_url
+  'new_suggestions',total,'all_suggestions_received',historical,
+  'summary',format('%s new suggestions. %s suggestions in your complete history. %s excerpts shown; %s without an individual excerpt. Open View all suggestions for full original messages. New means not included in an earlier confirmed daily summary.%s',total,historical,shown,total-shown,case when p_test then ' This is a preview: messages remain new for the next scheduled daily email.' else '' end),
+  'per_page_counts',summary,'suggestion_excerpts',excerpts,'view_all_suggestions',cfg.inbox_url
  );
  if octet_length(body::text)>48000 then raise exception 'Digest payload exceeds 48000 bytes'; end if;
  req:=net.http_post(url:=cfg.mail_endpoint,body:=body,
@@ -145,7 +148,10 @@ begin
  -- of its day claim. Do not implement retries on ambiguous or failed states.
 end $$;
 
-revoke all on function feedback_private.digest_reconcile(),feedback_private.digest_send_due() from public,anon,authenticated,service_role;
+create or replace function feedback_private.digest_send_due()
+returns void language sql security invoker set search_path='' as $$ select feedback_private.digest_dispatch(false) $$;
+
+revoke all on function feedback_private.digest_reconcile(),feedback_private.digest_send_due(),feedback_private.digest_dispatch(boolean) from public,anon,authenticated,service_role;
 -- Jobs execute as this SQL's owner (postgres); no secret in cron.job.
 select cron.schedule('feedback-daily-noon-rome','0 * * * *','select feedback_private.digest_send_due();');
 select cron.schedule('feedback-digest-reconcile','* * * * *','select feedback_private.digest_reconcile();');
