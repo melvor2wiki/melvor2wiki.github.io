@@ -41,7 +41,7 @@ function moneyThieving(n,level,mods={}) {
   const direct=bare(c?.Currency)==='GoldPieces'?((reward(c.MinQuantity)+reward(c.MaxQuantity))/2)*clamp(d.BaseCurrencyLootChance*(1+v('PercentCurrencyLootChance'))):0;
   const items=twice*(moneyWeighted(d.CommonDropTable,fortune)*clamp(d.BaseCommonLootChance*(1+v('PercentCommonLootChance')))+moneyWeighted(d.RareDropTable,fortune)*clamp(d.BaseRareLootChance*(1+v('PercentRareLootChance'))));
   const finish=twice*moneyWeighted(d.CompletionDropTable,fortune);
-  return {seconds,chance,attempts,direct,items,finish,gp:wins*(direct+items)+finish,rate:3600*(wins*(direct+items)+finish)/seconds};
+  return {seconds,chance,attempts,wins,direct,items,finish,gp:wins*(direct+items)+finish,rate:3600*(wins*(direct+items)+finish)/seconds};
 }
 function moneyBoosts(n, level) {
   const skill=publicNode('Skill','Thieving'), base=moneyCycleHourly(moneyThievingCycle(n,level));
@@ -70,11 +70,12 @@ function moneyThievingLoadout(n,level,upgrades) {
     slots.get(slot).push(upgrade);
   }
   const chosen=new Map();
-  const evaluate=items=>{
+  const cycleFor=items=>{
     const values={};
     for(const item of items)for(const [key,value] of Object.entries(item.values))values[key]=(values[key]||0)+value;
-    return moneyCycleHourly(moneyThievingCycle(n,level,values));
+    return moneyThievingCycle(n,level,values);
   };
+  const evaluate=items=>moneyCycleHourly(cycleFor(items));
   for(let pass=0;pass<3;pass++)for(const [slot,options] of slots){
     const others=[...chosen].filter(([key])=>key!==slot).map(([,value])=>value);
     let best=chosen.get(slot),rate=evaluate(best?[...others,best]:others);
@@ -85,7 +86,23 @@ function moneyThievingLoadout(n,level,upgrades) {
     if(best)chosen.set(slot,best);
   }
   const items=[...chosen.values()];
-  return {items,rate:evaluate(items)};
+  const cycle=cycleFor(items);
+  return {items,cycle,rate:moneyCycleHourly(cycle)};
+}
+function moneyThievingScenario(n,level,base) {
+  const upgrades=moneyBoosts(n,level);
+  const loadout=moneyThievingLoadout(n,level,upgrades);
+  const combined=loadout.rate>moneyCycleHourly(base);
+  const cycle=combined?loadout.cycle:base;
+  return {upgrades,loadout,combined,cycle,rate:moneyCycleHourly(cycle)};
+}
+function moneyProfitTotal(cycle, revenue, label, costLabel='Supply costs') {
+  if(!cycle||!(cycle.seconds>0))return '';
+  const hourly=amount=>moneyAmount(amount*3600/cycle.seconds);
+  const rows=revenue.filter(([,amount])=>amount>0).map(([name,amount])=>[name,hourly(amount)]);
+  if(cycle.cash)rows.push([costLabel,hourly(-cycle.cash)]);
+  rows.push(['<strong>'+label+'</strong>',moneyAmount(moneyCycleHourly(cycle))]);
+  return '<h3>Hourly profit breakdown</h3>'+formatV2OriginalTable(['Source','GP/hour'],rows);
 }
 function moneyCombat(n) {
   const drops=n.data.Drops||{};
@@ -146,7 +163,8 @@ function moneyOption(value,label,active) {
   return '<option value="'+escape(value)+'"'+(String(value)===String(active)?' selected':'')+'>'+escape(label)+'</option>';
 }
 function moneyRequirementCell(entry, level) {
-  const inputs=entry.group==='Combat'?[]:moneySupply(entry,level)?.inputs||[];
+  const needsMaterials=entry.group==='Crafting'||entry.group==='Gathering';
+  const inputs=needsMaterials?moneySupply(entry,level)?.inputs||[]:[];
   return moneyRequiredSkills(entry,inputs);
 }
 function moneyInputSaleRate(cycle) {
@@ -171,8 +189,7 @@ function moneyIndex(params) {
     if(!cycle||!(cycle.gp>0))return [];
     const rate=moneyCycleHourly(cycle);
     if(entry.group==='Thieving'){
-      const loadout=moneyThievingLoadout(entry.n,level,moneyBoosts(entry.n,level));
-      return [{entry,rate:Math.max(rate,loadout.rate)}];
+      return [{entry,rate:moneyThievingScenario(entry.n,level,cycle).rate}];
     }
     const combo=moneyCombination(entry,level);
     const best=combo?.rate>rate?combo:null;
@@ -197,7 +214,7 @@ function moneyIndex(params) {
   const headers=['Strategy','Required skills','Estimated profit/hour'];
   main.innerHTML='<h1>Money Making Guide</h1><p>Best repeatable routes at the selected level. Estimates include gathering, intermediate recipes and purchases used by the route. Shop sale prices are used throughout.</p>'+
     wikiSection('money-progression','Early to late game',table(['Level','Stage','Top base method','Base profit/hour'],checkpoints,true)+'<p>Checkpoints use unboosted rates at the displayed level in all skills.</p>')+
-    wikiSection('money-ranking','Best methods by skill and level','<form id="money-filter"><label>Skill <select name="skill">'+moneyOption('All','All skills',selected)+skills.map(s=>moneyOption(s,s,selected)).join('')+'</select></label> <label>Level <select name="level">'+Array.from({length:99},(_,i)=>moneyOption(i+1,i+1,level)).join('')+'</select></label> <label>Find a strategy <input name="method" type="search" maxlength="80" value="'+escape(search)+'"></label> <button>Compare</button></form><p>Required skills cover the whole route. Open a strategy for quest, equipment and other unlocks. Routes with an unpriced recurring input are omitted.</p>'+
+    wikiSection('money-ranking','Best methods by skill and level','<form id="money-filter"><label>Skill <select name="skill">'+moneyOption('All','All skills',selected)+skills.map(s=>moneyOption(s,s,selected)).join('')+'</select></label> <label>Level <select name="level">'+Array.from({length:99},(_,i)=>moneyOption(i+1,i+1,level)).join('')+'</select></label> <label>Find a strategy <input name="method" type="search" maxlength="80" value="'+escape(search)+'"></label> <button>Compare</button></form><p>Required skills cover the action and any mandatory materials. Open a strategy for access requirements and optional setup. Routes with an unpriced recurring input are omitted.</p>'+
       '<p>Estimated profit includes modeled boosters. Their unlocks appear in each strategy’s setup.</p>'+
       (shortlist.length?table(headers,shortlist.map(({entry,rate})=>[moneyStrategyLink(entry,level),moneyRequirementCell(entry,level),moneyAmount(rate)]),true):'<p>No profitable repeatable routes match these filters.</p>'))+
     wikiSection('money-combat','Combat methods','<p>Best modeled melee setup per enemy at level '+number(level)+' Attack, Strength and Defence. Includes base respawn and time to replace food. Special effects, area modifiers and survivability need checking in the method guide.</p>'+
@@ -209,13 +226,14 @@ function moneyIndex(params) {
 }
 function moneyMethod(entry,params) {
   const {n,group,skill}=entry, level=Math.max(entry.level||1,moneyRepairNumbers(params.get('level')));
-  let details='',setup='';
+  let details='',setup='',profit='',estimateLabel='Hourly estimate';
   if(group==='Combat'){
     const c=moneyCombat(n), model=moneyCombatEstimate(entry,level);
     const baseline=model.best;
     const seconds=Math.min(3600,Math.max(.1,Number(params.get('seconds'))||baseline?.seconds||1));
     const cost=Math.max(0,Math.min(1e9,params.has('cost')?Number(params.get('cost'))||0:baseline?.cost||0));
     const ready=baseline||params.has('seconds');
+    if(ready)profit=moneyAmount(moneyRate(entry,level,seconds,cost)).html;
     const form=(seconds,cost)=>'<form id="money-combat-form"><label>Seconds per kill including respawn and restocking <input name="seconds" type="number" min="0.1" max="3600" step="0.01" value="'+escape(seconds.toFixed(2))+'"></label> <label>Supplies per kill (GP) <input name="cost" type="number" min="0" max="1000000000" step="0.01" value="'+escape(cost.toFixed(2))+'"></label> <button>Calculate</button></form>';
     details='<p>Enemy combat level '+number(c.stats.combatLevel)+' · '+number(c.stats.hitpoints)+' HP.</p>'+
       table(['Gold/kill','Sellable loot/kill','Gross GP/kill','Net GP/hour'],[[moneyAmount(c.direct),moneyAmount(c.items),moneyAmount(c.gp),ready?moneyAmount(moneyRate(entry,level,seconds,cost)):'—']])+
@@ -231,20 +249,31 @@ function moneyMethod(entry,params) {
     if(loot.length)details+='<h3>Random drops</h3>'+table(['Item','Qty','Chance per kill','Average GP/kill'],loot,true);
     setup='<p>Reference stats use level '+number(level)+' Attack, Strength and Defence, a normal melee attack, enemy evasion and resistance, a 3-second respawn and food replacement. Optimized across the listed melee weapons with no ammo. Armour gear, special attacks, healing, combat triangle and area effects are outside the estimate. Use measured times for bosses or for any setup with active effects.</p>'+
       (baseline?table(['Weapon','Stance','Weapon requirements','Hit chance','Cycle incl. supplies','Profit/hour'],model.alternatives.map(x=>[link(x.w.n,true),escape(x.w.stance.name),requirements(x.w.n),numericCell(x.p*100,'%'),numericCell(x.seconds,' s'),moneyAmount(x.rate)]),true):'')+
-      '<p>Check special attacks and whether you can survive before attempting to idle. Enemy combat level is a difficulty rating.</p>';
+      '<p>Check special attacks and whether you can survive before attempting to idle. Enemy combat level is a difficulty rating.</p>'+
+      (ready?moneyProfitTotal({gp:c.gp,cash:cost,seconds},[['Direct gold',c.direct],['Sold drops',c.items]],'Total estimated profit'):'');
   }else if(group==='Thieving'){
     const m=moneyThieving(n,level),cycle=moneySupply(entry,level);
+    const scenario=moneyThievingScenario(n,level,cycle), upgrades=scenario.upgrades.slice(0,12);
+    estimateLabel='Base setup';
+    if(scenario.cycle)profit=moneyAmount(scenario.rate).html+' with the '+(scenario.combined?'combined setup':'base setup');
     details='<form id="money-method-level"><label>Thieving level <select name="level">'+Array.from({length:100-entry.level},(_,i)=>moneyOption(i+entry.level,i+entry.level,level)).join('')+'</select></label> <button>Calculate</button></form>'+
-      table(['Success per attempt','Seconds per cycle','Direct GP/success','Loot GP/success','Completion loot GP','GP/hour'],[[numericCell(m.chance*100,'%'),numericCell(m.seconds,' s'),moneyAmount(m.direct),moneyAmount(m.items),moneyAmount(m.finish),moneyAmount(m.rate)]])+
-      '<p>A successful stage pays its own loot. The last stage also awards completion loot. Failed attempts retain progress and add base stun time.</p>'+(cycle?'<p>After replacing food: <strong class="currency-value">'+goldNumber(moneyRate(entry,level))+' GP/hour</strong>.</p>'+moneyRouteTable(cycle.inputs):'<p>No repeatable food source is modeled at this level.</p>');
-    const candidates=moneyBoosts(n,level),upgrades=candidates.slice(0,12);
-    const loadout=moneyThievingLoadout(n,level,candidates);
-    setup='<p>Get enough stealth for reliable attempts, then compare shorter actions, skipped stages and better loot. At 100% success, more stealth adds no income on this target.</p>'+
-      (loadout.items.length?'<h3>Combined toolbelt setup</h3><p>Estimated profit after replacing food: <strong class="currency-value">'+goldNumber(loadout.rate)+' GP/hour</strong>. Meet the listed unlocks. The comparison searches one item per slot type and checks swaps again after combining bonuses.</p>'+table(['Equip','Effect used','Requirements'],loadout.items.map(x=>[readerBoosterName(x.node),x.used.map(m=>wikiBonusText(m,x.node)).join('<br>'),readerBoosterRequirements(x.node)]),true):'')+
-      (upgrades.length?'<h3>Individual upgrades</h3>'+table(['Upgrade','Effect used','Requirements','Profit/hour with upgrade'],upgrades.map(x=>[readerBoosterName(x.node),x.used.map(m=>wikiBonusText(m,x.node)).join('<br>'),readerBoosterRequirements(x.node),moneyAmount(x.rate)]),true)+'<p>Each row tests one permanent source and includes food replacement. Potions, charged items, conditional bonuses and same-area bonus rolls are excluded from this comparison.</p>':'');
+      '<p>Start here to see what the target pays without boosters. Failed attempts keep your progress but can stun you. The final stage can also pay completion loot.</p>'+
+      table(['Success per attempt','Seconds per cycle','Gold/success','Sellable loot/success','Completion loot/cycle','Base gross GP/hour'],[[numericCell(m.chance*100,'%'),numericCell(m.seconds,' s'),moneyAmount(m.direct),moneyAmount(m.items),moneyAmount(m.finish),moneyAmount(m.rate)]])+
+      (cycle?'<p>Base profit after food replacement is <strong>'+moneyAmount(moneyCycleHourly(cycle)).html+' per hour</strong>.</p>':'<p>No repeatable food source is modeled at this level.</p>');
+    setup=(scenario.combined?'<h3>Combined toolbelt setup</h3><p>Equip these items together to reach the estimate at the top of the page.</p>'+
+      table(['Equip','Effect used','Setup unlocks'],scenario.loadout.items.map(x=>[readerBoosterName(x.node),x.used.map(m=>wikiBonusText(m,x.node)).join('<br>'),readerBoosterRequirements(x.node)]),true):'')+
+      (upgrades.length?'<h3>Individual upgrades</h3><p>Each row shows the full hourly profit with that upgrade alone. Use it to decide what to get first. Adding up the rows would count the base earnings more than once.</p>'+
+      table(['Upgrade','Effect used','Setup unlocks','Profit/hour with this only'],upgrades.map(x=>[readerBoosterName(x.node),x.used.map(m=>wikiBonusText(m,x.node)).join('<br>'),readerBoosterRequirements(x.node),moneyAmount(x.rate)]),true):'');
+    if(scenario.cycle){
+      const {direct,loot,completion}=scenario.cycle.earnings;
+      if(scenario.cycle.inputs.length)setup+='<details><summary>Food used in the estimate</summary><p>Use any suitable food. This example includes the time to replace the food used.</p>'+moneyRouteTable(scenario.cycle.inputs)+'</details>';
+      setup+='<p>Profit uses average direct gold and the shop value of the loot. The hourly rate accounts for failed attempts, stuns and any food replacement. Potions, charged items, conditional bonuses and same-area bonus rolls are outside the estimate.</p>'+
+        moneyProfitTotal(scenario.cycle,[['Direct gold',direct],['Sold stage loot',loot],['Sold completion loot',completion]],scenario.combined?'Total with the combined setup':'Total with the base setup','Food purchases');
+    }
   }else{
     const cycle=moneySupply(entry,level);
-    details=cycle?table(['Processing time','Supply time','Full cycle','Expected sale value','Recurring cash cost','Profit/hour'],[[numericCell(cycle.actionSeconds,' s'),numericCell(cycle.seconds-cycle.actionSeconds,' s'),numericCell(cycle.seconds,' s'),moneyAmount(cycle.gp),moneyAmount(cycle.cash),moneyAmount(moneyRate(entry,level))]])+
+    if(cycle)estimateLabel='Base setup';
+    details=cycle?table(['Processing time','Supply time','Full cycle','Expected sale value','Recurring cash cost','Base profit/hour'],[[numericCell(cycle.actionSeconds,' s'),numericCell(cycle.seconds-cycle.actionSeconds,' s'),numericCell(cycle.seconds,' s'),moneyAmount(cycle.gp),moneyAmount(cycle.cash),moneyAmount(moneyRate(entry,level))]])+
       '<h3>Full production route</h3>'+moneyRouteTable(cycle.inputs,{entry,cycle,level})+'<p>Sell the output at its shop price. Times are expected work per batch, including all repeatable material steps listed above.</p>':
       (moneyRecurringInputs(n)?'<p>One or more inputs has no modeled repeatable source at this level. This method is excluded from the rankings.</p>':'<p>This action consumes required equipment charges. The model cannot price their replacement, so the method is excluded from the rankings.</p>');
     const liquidation=cycle&&group==='Crafting'?moneyInputSaleRate(cycle):null;
@@ -252,14 +281,19 @@ function moneyMethod(entry,params) {
       details+='<p>Selling these inputs at the same supply pace yields <span class="currency-value">'+goldNumber(liquidation)+' GP/hour</span>. '+(liquidation>moneyRate(entry,level)?'That beats processing them in this recipe.':'Processing them in this recipe earns at least as much per hour.')+'</p>';
     }
     const combo=cycle?moneyCombination(entry,level):null;
+    const combined=combo?.rate>moneyCycleHourly(cycle);
+    const best=combined?combo.cycle:cycle;
+    if(best)profit=moneyAmount(moneyCycleHourly(best)).html+' with the '+(combined?'combined setup':'base setup');
     setup=(combo?moneyCombinedDetails(combo):'')+(group==='Crafting'?wikiCosts(n.data.Ingredients,n):'')+
-      (cycle?moneyRouteBoosters(entry,cycle,level):'');
+      (cycle?moneyRouteBoosters(entry,cycle,level):'')+
+      (best?moneyProfitTotal(best,[['Sold output and loot',best.gp]],combined?'Total with the combined setup':'Total with the base setup'):'');
     if(skill==='Fishing')details+='<p>Uses the average fishing interval and the weighted main catch. Junk and special catches are excluded from sale revenue.</p>';
     if(skill==='Mining')details+='<p>Uses the expected break time including prospecting. Extra finds are excluded.</p>';
   }
   main.innerHTML='<h1>'+escape(moneyStrategyName(entry))+'</h1><p>'+moneyNavLink()+' / '+link(n,true)+'</p>'+
+    (profit?'<p id="money-profit"><strong>Estimated profit/hour:</strong> '+profit+'</p>':'')+
     wikiSection('money-access','Requirements','<h3>Required skills for the whole route</h3>'+moneyRequirementCell(entry,level)+'<h3>Action and access</h3>'+moneyAccess(entry))+
-    wikiSection('money-estimate','Hourly estimate',details)+wikiSection('money-setup','Setup',setup);
+    wikiSection('money-estimate',estimateLabel,details)+wikiSection('money-setup','Setup',setup);
   const form=main.querySelector('#money-combat-form,#money-method-level');
   if(form)form.addEventListener('submit',event=>{
     event.preventDefault();

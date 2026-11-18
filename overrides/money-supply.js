@@ -107,7 +107,7 @@ function moneyThievingCycle(n,level,mods={}) {
   if(damage>0&&!food)return null;
   const qty=damage>0?damage/food.healing:0;
   return {gp:m.gp,cash:qty?qty*food.path.cash:0,seconds:m.seconds+(qty?qty*food.path.seconds:0),
-    inputs:qty?[{qty,path:food.path}]:[],actionSeconds:m.seconds};
+    inputs:qty?[{qty,path:food.path}]:[],actionSeconds:m.seconds,earnings:{direct:m.wins*m.direct,loot:m.wins*m.items,completion:m.finish}};
 }
 function moneyCycleHourly(cycle) {
   return cycle&&cycle.seconds>0?(cycle.gp-cycle.cash)*3600/cycle.seconds:0;
