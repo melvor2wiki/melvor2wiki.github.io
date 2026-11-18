@@ -35,3 +35,8 @@ a,a:visited,.row-link,.wiki-section a,.home-navigation a { color:#29d; }
 .debuff,.bonus-line.debuff,.text-danger,.debuff a,.text-danger a { color:#ff0000 !important; }
 .brand,.brand:visited,.brand:hover,.brand:focus-visible,.brand span { color:#fff !important; text-decoration:none !important; }
 .wiki-logo,.wiki-logo:hover,.wiki-logo:focus-visible { color:#fff; text-decoration:none !important; }
+.entity-v2 .entity-infobox .infobox-art img {
+  width:auto;
+  height:auto;
+  max-width:min(160px,100%);
+}

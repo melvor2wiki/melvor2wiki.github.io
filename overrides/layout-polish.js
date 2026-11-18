@@ -31,3 +31,13 @@ function polishLootSources(refs) {
   html=html.replace(/<th scope="col"><button[^>]*>Chance<span[\s\S]*?<\/th>\s*<th scope="col"><button[^>]*>Chance \(%\)<span[\s\S]*?<\/th>/,'<th scope="col" colspan="2"><button type="button" class="sort-head" data-sort-column="3" data-sort-field="3">Chance<span class="sort-indicator" aria-hidden="true"></span></button></th>');
   return '<div class="loot-sources">'+html+'</div>'+(refs.some(r=>r.from.type==='MiningRecipe'&&r.path[0]==='Product')?'<p class="wiki-note">For the main mining product, chance is per completed rock.</p>':'');
 }
+function catalogUnique(records, preferItem) {
+  const entries = new Map();
+  for (const record of records) {
+    const canonical = publicCanonical(record);
+    const key = canonical.key;
+    const previous = entries.get(key);
+    if (!previous || record.key === key) entries.set(key, preferItem ? canonical : record);
+  }
+  return [...entries.values()];
+}

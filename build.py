@@ -16,12 +16,37 @@ with zipfile.ZipFile(io.BytesIO(data)) as archive:
         target.write_bytes(archive.read(entry))
 print('Verified static release:',len(parts),'parts')
 
+# Replace undersized thumbnails with artwork extracted from the installed game.
+data_path = out / 'data.js'
+assignment = data_path.read_text(encoding='utf-8')
+prefix, encoded = assignment.split('=', 1)
+payload = json.loads(json.loads(encoded.strip().removesuffix(';')))
+with zipfile.ZipFile(root / 'release/artwork-refresh.zip') as artwork:
+    replacements = json.loads(artwork.read('images.json'))
+    for key, target in replacements.items():
+        assert re.fullmatch(r'assets/\d+-[a-f0-9]{12}\.webp', target)
+        asset = artwork.read(target)
+        assert hashlib.sha256(asset).hexdigest()[:12] == Path(target).stem.rsplit('-', 1)[1]
+        (out / target).write_bytes(asset)
+        assert key in payload['images']
+    old_paths = set(payload['images'].values())
+    payload['images'].update(replacements)
+    for old in old_paths - set(payload['images'].values()):
+        assert re.fullmatch(r'assets/\d+\.webp', old)
+        (out / old).unlink()
+data_path.write_text(prefix + '= ' + json.dumps(json.dumps(payload, separators=(',', ':'))) + ';\n', encoding='utf-8')
+
 # Reader-facing form changes are maintained separately from the large game-data release.
 app_path=out/'app.js'
 app=app_path.read_text(encoding='utf-8')
 start=app.index('function publicSuggest(')
 end=app.index('function publicRoute(',start)
 app=app[:start]+(root/'overrides/public-suggest.js').read_text(encoding='utf-8-sig')+app[end:]
+app=app.replace('const results = records.filter(node => (!type || node.type === type) &&',
+                'const matches = records.filter(node => (!type || node.type === type) &&', 1)
+marker='  const values = {\n    nome: n => n.name,'
+assert app.count(marker)==1
+app=app.replace(marker, '  const results = catalogUnique(matches, screen === "cerca" && !type);\n'+marker)
 app=app.replace('const brand = imageSource(visuals.logo);','const brand = "data:image/webp;base64,'+base64.b64encode((root/'overrides/logo-high-resolution.webp').read_bytes()).decode()+'";')
 app=app.replace('const number = value => italian.format(value);','const number = value => polishNumber(value);')
 # Keep shared primitives available to the focused reader-facing overrides.
@@ -54,7 +79,7 @@ print('Anonymous suggestion form configured; no email address or private key emb
 # Refresh only changed browser files after a deployment; keep the large data cache.
 html=out/'index.html'
 markup=html.read_text(encoding='utf-8')
-for filename in ['app.js','config.js','style.css']:
+for filename in ['app.js','config.js','style.css','data.js']:
     version=hashlib.sha256((out/filename).read_bytes()).hexdigest()[:12]
     markup=markup.replace('"'+filename+'"','"'+filename+'?v='+version+'"')
 html.write_text(markup,encoding='utf-8')
