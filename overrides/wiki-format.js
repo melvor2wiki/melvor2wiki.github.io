@@ -5,7 +5,7 @@ function publicFraction(p) {
   return '1/' + polishNumber(1 / p);
 }
 function publicChanceDisplay(p) {
-  if (!Number.isFinite(p)) return '—';
+  if (!Number.isFinite(p)) return 'â€”';
   const percent = polishNumber(p*100) + '%';
   return publicFraction(p) + ' (' + percent + ')';
 }
@@ -24,7 +24,7 @@ function icon(node) {
 function itemEntry(value, source, withChance = false) {
   if (bare(value?.Currency) === 'GoldPieces') {
     const currency = publicNode('Currency', value.Currency), min = value.Quantity ?? value.MinQuantity, max = value.MaxQuantity ?? min;
-    return '<span class="item-line">' + (currency ? link(currency, true) : 'Gold') + (min == null ? '' : ' ' + number(min) + (max > min ? '–' + number(max) : '')) + (withChance && value.Chance < 1 ? ' · ' + publicChanceDisplay(value.Chance) : '') + '</span>';
+    return '<span class="item-line">' + (currency ? link(currency, true) : 'Gold') + (min == null ? '' : ' ' + number(min) + (max > min ? 'â€“' + number(max) : '')) + (withChance && value.Chance < 1 ? ' Â· ' + publicChanceDisplay(value.Chance) : '') + '</span>';
   }
   return formatV2OriginalItemEntry(value, source, withChance);
 }
@@ -40,15 +40,15 @@ function table(headers, rows, sortable = false) {
   const omit = new Set(), shared = [], originalFields = headers.map((_,i)=>i);
   names.forEach((heading,i) => {
     const values = rows.map(r=>text(r[i]));
-    if(rows.length && values.every(v=>!v || /^[—–-]$/.test(v))) omit.add(i);
-    else if(rows.length > 1 && !/^(?:Name|Item|Potion|Product|Source|Skill|Monster|Pet|Rank|Objective|Task|Action|Levels?|Tier)/i.test(heading) && values.every(v=>v===values[0]) && values[0] && !/^(?:XP|XP\/s|Value|Sell Price|Quantity|Qty|Points|Count)$/i.test(heading)) {
+    if(rows.length && values.every(v=>!v || /^[â€”â€“-]$/.test(v))) omit.add(i);
+    else if(rows.length > 1 && !/^(?:Name|Item|Potion|Product|Source|Skill|Monster|Pet|Rank|Objective|Task|Action|Levels?|Tier)/i.test(heading) && values.every(v=>v===values[0]) && values[0] && !/^(?:XP|XP\/s|Value|Sell Price|Quantity|Qty|Points|Count|Effects?|Bonuses?|Modifiers?)$/i.test(heading)) {
       omit.add(i);shared.push('<p class="table-shared"><strong>'+escape(heading)+':</strong> '+String(rows[0][i]&&typeof rows[0][i]==='object'?rows[0][i].html:rows[0][i])+'</p>');
     }
   });
   if(omit.size){names=names.filter((_,i)=>!omit.has(i));rows=rows.map(r=>r.filter((_,i)=>!omit.has(i)));}
   const prepared = rows.map(row => row.map((cell, i) => {
     const obj = cell && typeof cell === 'object';
-    let html = String(obj ? cell.html : cell ?? '—');
+    let html = String(obj ? cell.html : cell ?? 'â€”');
     const percentValue = /^\d[\d,.]*%$/.test(html.trim()) ? Number(html.replace(/[, %]/g, '')) / 100 : null;
     html = formatV2Percent(html);
     if (/^Chance(?: \(%\))?$/.test(names[i])) {
@@ -69,16 +69,16 @@ function wikiTaskCondition(condition, task) {
   const ref = (key, kind = key) => formatV2Reference(d[key], kind, task);
   if (type === 'ItemStatistic') {
     const state = /Sold/.test(d.Statistic) ? 'sold' : /Used|Consumed/.test(d.Statistic) ? 'used' : /Found/.test(d.Statistic) ? 'found' : 'gained';
-    return ref('Item') + ' ×' + amount + ' ' + state;
+    return ref('Item') + ' Ã—' + amount + ' ' + state;
   }
   if (type === 'CurrencyStatistic') return ref('Currency') + ' ' + amount + (/Sale|Sold/.test(d.Statistic) ? ' earned from sales' : /Spent/.test(d.Statistic) ? ' spent' : ' gained');
-  if (type === 'EnemyStatistic') return ref('Enemy') + ' ×' + amount + (/TasksCompleted/.test(d.Statistic) ? ' Slayer tasks completed' : ' defeated');
-  if (type === 'DungeonStatistic') return ref('Dungeon') + ' ×' + amount + ' completed';
+  if (type === 'EnemyStatistic') return ref('Enemy') + ' Ã—' + amount + (/TasksCompleted/.test(d.Statistic) ? ' Slayer tasks completed' : ' defeated');
+  if (type === 'DungeonStatistic') return ref('Dungeon') + ' Ã—' + amount + ' completed';
   if (type === 'FarmingRecipe') {
     const recipe=publicNode('FarmingRecipe',d.Recipe),item=publicNode('Item',recipe?.data.Products?.[0]?.Item||d.Recipe);
-    return (item?link(item,true):formatV2Reference(d.Recipe,'FarmingRecipe',task))+' ×'+amount+' harvested';
+    return (item?link(item,true):formatV2Reference(d.Recipe,'FarmingRecipe',task))+' Ã—'+amount+' harvested';
   }
-  if (type === 'HuntingAnimalStatistic') return ref('Animal', 'HuntingAnimal') + ' ×' + amount + ' trapped';
+  if (type === 'HuntingAnimalStatistic') return ref('Animal', 'HuntingAnimal') + ' Ã—' + amount + ' trapped';
   if (type === 'EquipmentSlotEquipped') return 'Equip an item in the ' + escape(human(d.Slot).toLowerCase()) + ' slot';
   if (type === 'Level') {
     const skill = publicNode('Skill', d.Component?.Entity);
@@ -100,7 +100,7 @@ function requirements(node) {
     else text = wikiTaskCondition(req, node);
     return (data.IsOr ? '<span class="requirement-or">or</span>' : '') + '<div class="requirement">' + text + '</div>';
   });
-  return sortValue(lines.join('') || '—', unique.find(r => bare(r.Type) === 'Level')?.Data?.Level, true);
+  return sortValue(lines.join('') || 'â€”', unique.find(r => bare(r.Type) === 'Level')?.Data?.Level, true);
 }
 function wikiPetChance(pet) {
   const t = pet.data.Trigger, d = t?.Data;
@@ -114,10 +114,11 @@ function wikiPetChance(pet) {
 function formatV2Pets() {
   const pets = byType.get('Pet') || [];
   main.innerHTML = '<h1>Pets</h1><p>Pets provide permanent bonuses once unlocked. Their effects remain active without equipping them.</p>' +
-    wikiSection('drop-rates', 'Drop Rates', '<p>For pets earned through skill XP, each XP gain gives a separate roll. Divide the XP from that gain by the pet’s scale factor to find its chance. Most skill pets use <strong>13,034,431</strong>.</p><p>For example, a 100 XP gain gives about <strong>1/130,344</strong> per roll. A 1,000 XP gain gives about <strong>1/13,034</strong>. Larger XP gains improve each roll; faster actions give more rolls.</p><p>Every roll is independent. A long dry streak does not improve the next roll, and reaching 13 million total XP does not guarantee a pet. With 100 XP per action and a scale factor of 13,034,431, roughly 90,346 actions give a 50% chance of finding it at least once.</p><p>Some pets instead require a task or a specific event. Their own pages list those conditions.</p>') +
+    wikiSection('drop-rates', 'Drop Rates', '<p>For pets earned through skill XP, each XP gain gives a separate roll. Divide the XP from that gain by the petâ€™s scale factor to find its chance. Most skill pets use <strong>13,034,431</strong>.</p><p>For example, a 100 XP gain gives about <strong>1/130,344</strong> per roll. A 1,000 XP gain gives about <strong>1/13,034</strong>. Larger XP gains improve each roll; faster actions give more rolls.</p><p>Every roll is independent. A long dry streak does not improve the next roll, and reaching 13 million total XP does not guarantee a pet. With 100 XP per action and a scale factor of 13,034,431, roughly 90,346 actions give a 50% chance of finding it at least once.</p><p>Some pets instead require a task or a specific event. Their own pages list those conditions.</p>') +
     wikiSection('pet-list', 'Pet List', table(['Pet', 'Unlock Conditions', 'Effect'], pets.map(p => [link(p, true), wikiPetChance(p), wikiAllBonusText(p.data.Bonuses, p)]), true));
 }
 function publicRoute(screen, params) {
+  if (screen === 'money') {moneyGuide(params);return true;}
   if (screen === 'pets' || ((screen === 'categoria' || screen === 'famiglia') && /^(pets|Pet)$/.test(params.get('id')))) {formatV2Pets();return true;}
   if (screen === 'guides') {publicGuides();return true;}
   if (screen === 'guide') {publicGuides(params.get('id'));return true;}
@@ -140,6 +141,6 @@ function publicFinishPage() {
   const walker = document.createTreeWalker(main, NodeFilter.SHOW_TEXT);
   while (walker.nextNode()) {
     const text = walker.currentNode;
-    if (!text.parentElement.closest('script,style,input,textarea,code,pre')) text.textContent = polishDecimalText(formatV2Percent(text.textContent)).replace(/&lt;/g, '<').replace(/\s*·\s*(?=Level\b)/g,' ');
+    if (!text.parentElement.closest('script,style,input,textarea,code,pre')) text.textContent = polishDecimalText(formatV2Percent(text.textContent)).replace(/&lt;/g, '<').replace(/\s*Â·\s*(?=Level\b)/g,' ');
   }
 }

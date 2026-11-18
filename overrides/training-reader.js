@@ -66,7 +66,7 @@ function readerTraining(id) {
   if(!candidates.length)return readerUnlockTraining(id);
   const ranges=readerRanges(id),rows=ranges.filter(r=>r.action).map(r=>{
     const a=r.action,first=readerRate(a,r.from,id),last=readerRate(a,r.to,id);
-    return [guideV2RangeLabel(r),guideV2Link(a),guideV2Num(first)+(Math.abs(last-first)>.0005?'–'+guideV2Num(last):'')];
+    return [guideV2RangeLabel(r),guideV2Link(a),guideV2Num(first)+(Math.abs(last-first)>.0005?'â€“'+guideV2Num(last):'')];
   });
   let html='<p>'+readerText(readerNotes(id)[0])+'</p>'+table(['Level','Train on','XP/s'],rows,true);
   if(id==='Cooking')html+='<p>Ranges show XP/s at the first and last level, including failed cooks. Ingredients are already in your bank.</p>';
@@ -86,12 +86,12 @@ function readerUnlockTraining(id) {
     const rows=nodes.slice().sort((a,b)=>guideV2Level(a,id)-guideV2Level(b,id)).map(n=>[numericCell(guideV2Level(n,id)),link(n,true),numericCell(n.data.BaseExperience),numericCell((id==='Farming'?n.data.BaseInterval:n.data.ProductInterval)/1000,' s'),publicItems(id==='Farming'?n.data.Ingredients?.Items:n.data.Eats,n),publicItems(n.data.Products||(n.data.Product?[n.data.Product]:[]),n)]);
     return html+table(['Level',id==='Farming'?'Crop':'Animal','XP',id==='Farming'?'Growth time':'Production time',id==='Farming'?'Seeds':'Feed','Products'],rows,true)+'<p>'+(id==='Farming'?'XP is per base harvest. Grow crops in parallel; care, pests and regrowth change the full cycle.':'XP is the configured animal value. Maturity, satisfaction and lifespan affect the full return; this is not a sustained XP/s ranking.')+'</p>';
   }
-  return html+table(['Level','Next options','Other requirements'],ranges.map(r=>[guideV2RangeLabel(r),r.nodes.map(n=>link(n,true)).join('<br>')||'Keep your current action',r.nodes.map(n=>readerExtraRequirements(n,id)||'—').join('<br>')]),true)+'<p>'+readerText(readerNotes(id)[1])+'</p>';
+  return html+table(['Level','Next options','Other requirements'],ranges.map(r=>[guideV2RangeLabel(r),r.nodes.map(n=>link(n,true)).join('<br>')||'Keep your current action',r.nodes.map(n=>readerExtraRequirements(n,id)||'â€”').join('<br>')]),true)+'<p>'+readerText(readerNotes(id)[1])+'</p>';
 }
 function readerCombatTraining(id) {
   const g=payload.guides.skills[id],stances=(g.stances||[]).map(s=>'<strong>'+escape(s.name)+'</strong>: '+s.experienceGain.filter(x=>bare(x.Component.Entity)===id).map(x=>guideV2Num(x.ExperiencePerDamage,' XP per damage')).join(', ')).join('<br>');
   const gearSkill=['Strength','Hitpoints'].includes(id)?'Attack':id,skill=publicNode('Skill',gearSkill),equipment=wikiEquipmentUnlocks(skill).filter(n=>guideV2Level(n,gearSkill)<=99).sort((a,b)=>guideV2Level(a,gearSkill)-guideV2Level(b,gearSkill));
-  const levels=[...new Set([1,...equipment.map(n=>guideV2Level(n,gearSkill))])].sort((a,b)=>a-b),rows=levels.map((lv,i)=>[lv+'–'+(levels[i+1]?levels[i+1]-1:99),equipment.filter(n=>guideV2Level(n,gearSkill)===lv).map(n=>link(n,true)).join('<br>')||'Keep your current equipment']);
+  const levels=[...new Set([1,...equipment.map(n=>guideV2Level(n,gearSkill))])].sort((a,b)=>a-b),rows=levels.map((lv,i)=>[lv+'â€“'+(levels[i+1]?levels[i+1]-1:99),equipment.filter(n=>guideV2Level(n,gearSkill)===lv).map(n=>link(n,true)).join('<br>')||'Keep your current equipment']);
   return '<p>'+readerText(readerNotes(id)[0])+'</p><p>'+readerText(readerNotes(id)[1])+'</p><h3>Choose your XP stance</h3><p>'+stances+'</p><h3>'+(id==='Hitpoints'?'Melee equipment checkpoints':'Equipment checkpoints')+'</h3>'+table([gearSkill+' level','New equipment'],rows,true)+'<p>These are equipment unlocks, not fixed target changes. Combat XP/s depends on your weapon, accuracy, enemy and food stops.</p>';
 }
 function readerSupplyRoute(id) {
@@ -123,7 +123,7 @@ function readerBoosterPool(skill) {
 function readerBoosterName(n) {
   if(n.type==='AstrologyNode'){
     const c=(byType.get('AstrologyConstellation')||[]).find(c=>bare(n.id).startsWith(bare(c.id)));
-    return (c?link(c,true)+' — ':'')+escape(n.name);
+    return (c?link(c,true)+' â€” ':'')+escape(n.name);
   }
   return link(n,true);
 }
@@ -133,25 +133,29 @@ function readerBoosterType(n) {
 }
 function readerBoosters(skill) {
   const pool=readerBoosterPool(skill),cats=['XP','Action Time','Success and Accuracy','Action Progress','Resources','Other Bonuses'];
-  return cats.map(cat=>{
-    const rows=pool.map(({node,mods})=>{
-      const selected=mods.filter(m=>readerCategory(m.Stat?.Name||m.StatGroup)===cat);if(!selected.length)return null;
-      const effect=selected.map(m=>m.Stat?wikiBonusText(m,node):wikiAllBonusText({Global:[m]},node)).join('<br>');
-      const req=readerBoosterRequirements(node);return {node,effect,req};
-    }).filter(Boolean);
-    if(!rows.length)return '';
-    const groups=[...new Set(rows.map(r=>readerBoosterType(r.node)))];
-    return '<h3 id="boost-'+cat.toLowerCase().replaceAll(' ','-')+'">'+escape(cat)+'</h3>'+groups.map(group=>'<h4>'+escape(group)+'</h4>'+table(['Source','Effect','Requirements'],rows.filter(r=>readerBoosterType(r.node)===group).sort((a,b)=>wikiLevel(a.node)-wikiLevel(b.node)||collator.compare(a.node.name,b.node.name)).map(r=>[readerBoosterName(r.node),r.effect,r.req]),true)).join('');
+  const groups=[...new Set(pool.map(({node})=>readerBoosterType(node)))].sort(collator.compare);
+  return groups.map(group=>{
+    const sources=pool.filter(({node})=>readerBoosterType(node)===group);
+    const tables=cats.map(cat=>{
+      const rows=sources.flatMap(({node,mods})=>{
+        const selected=mods.filter(m=>readerCategory(m.Stat?.Name||m.StatGroup)===cat);
+        if(!selected.length)return [];
+        const effect=selected.map(m=>m.Stat?wikiBonusText(m,node):wikiAllBonusText({Global:[m]},node)).join('<br>');
+        return [{node,effect}];
+      }).sort((a,b)=>wikiLevel(a.node)-wikiLevel(b.node)||collator.compare(a.node.name,b.node.name));
+      return rows.length?'<h4>'+escape(cat)+'</h4>'+table(['Source','Effect','Requirements'],rows.map(({node,effect})=>[readerBoosterName(node),effect,readerBoosterRequirements(node)]),true):'';
+    }).join('');
+    return '<h3 id="boost-'+group.toLowerCase().replaceAll(' ','-')+'">'+escape(group)+'</h3>'+tables;
   }).join('');
 }
 function readerBoosterRequirements(n) {
   let req=guideV2Html(requirements(n));
   if(n.type==='AstrologyNode'){
     const c=(byType.get('AstrologyConstellation')||[]).find(c=>bare(n.id).startsWith(bare(c.id)));
-    if(c)req=guideV2Html(requirements(c))+(req!=='—'?'<br>'+req:'');
+    if(c)req=guideV2Html(requirements(c))+(req!=='â€”'?'<br>'+req:'');
   }
   if(n.type==='Pet')return wikiPetChance(n);
-  if(n.type==='Item'&&req==='—'){
+  if(n.type==='Item'&&req==='â€”'){
     const source=(incoming.get(n.key)||[]).find(r=>r.role==='source'&&['ArtisanRecipe','HerbloreRecipe','ShopPurchase'].includes(r.from.type));
     if(source)req=guideV2Html(requirements(source.from));
   }
@@ -215,8 +219,8 @@ function publicGuides(id) {
   id=bare(id);const skill=publicNode('Skill',id);if(!skill)return;
   const notes=readerNotes(id),supply=readerCandidates(id).some(r=>r.acquisition?.status==='complete within restricted model'),rates=readerCandidates(id).length;
   const comparison=rates?readerRateExamples(id):'';
-  const sections=[['leveling','Training (1–99)'],...(supply?[['supplies','Starting without supplies']]:[]),...(comparison?[['comparison','Which upgrades help most?']]:[]),['boosters','Boosters']];
-  main.innerHTML='<article class="training-guide-v2 reader-guide"><h1>'+escape(skill.name)+'/Training</h1><p class="guide-back">&lt; '+link(skill,true)+'</p><p class="guide-caption">For recipes, drops and unlocks, see '+link(skill,true)+'.</p>'+wikiContents(sections)+wikiSection('leveling','Training (1–99)',readerTraining(id))+(supply?wikiSection('supplies','Starting without supplies',readerSupplyRoute(id)):'')+(comparison?wikiSection('comparison','Which upgrades help most?',comparison):'')+wikiSection('boosters','Boosters','<p>'+readerText(notes[2])+'</p>'+readerBoosters(skill))+'<details class="guide-calculation"><summary>How the rates are calculated</summary>'+guideV2Method(id)+(id==='Thieving'?'<p>Success = min(1, (100 + level) / (100 + perception)). Expected cycle = stages × (action time + failure chance × stun time) / success chance.</p>':'')+'</details></article>';
+  const sections=[['leveling','Training (1â€“99)'],...(supply?[['supplies','Starting without supplies']]:[]),...(comparison?[['comparison','Which upgrades help most?']]:[]),['boosters','Boosters']];
+  main.innerHTML='<article class="training-guide-v2 reader-guide"><h1>'+escape(skill.name)+'/Training</h1><p class="guide-back">&lt; '+link(skill,true)+'</p><p class="guide-caption">For recipes, drops and unlocks, see '+link(skill,true)+'.</p>'+wikiContents(sections)+wikiSection('leveling','Training (1â€“99)',readerTraining(id))+(supply?wikiSection('supplies','Starting without supplies',readerSupplyRoute(id)):'')+(comparison?wikiSection('comparison','Which upgrades help most?',comparison):'')+wikiSection('boosters','Boosters','<p>'+readerText(notes[2])+'</p>'+readerBoosters(skill))+'<details class="guide-calculation"><summary>How the rates are calculated</summary>'+guideV2Method(id)+(id==='Thieving'?'<p>Success = min(1, (100 + level) / (100 + perception)). Expected cycle = stages Ã— (action time + failure chance Ã— stun time) / success chance.</p>':'')+'</details></article>';
   const anchor=main.querySelector('.wiki-toc a[data-jump="boosters"]');
   if(anchor){const list=document.createElement('ol');for(const heading of main.querySelectorAll('#boosters > h3')){const li=document.createElement('li'),a=document.createElement('a');a.href='#'+heading.id;a.dataset.jump=heading.id;a.textContent=heading.textContent;li.append(a);list.append(li);}anchor.closest('li').append(list);}
 }
