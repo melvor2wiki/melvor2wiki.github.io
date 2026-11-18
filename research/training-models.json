@@ -1,0 +1,58 @@
+{
+  "seed": 26724394,
+  "assembly_sha256": "0a5a9fff320aaaff781816dee0eee938d61d14982ba7f4523dd8ca31d95f27a9",
+  "verified_existing_rate_skills": 12,
+  "added_rate_skill": "Thieving",
+  "thieving_formula": "XP * p / (expected_successful_stages * (action_seconds + (1-p)*(1-stun_avoidance)*stun_seconds)); p=min(1,(100+stealth)/(100+perception))",
+  "source_sha256": {
+    "ActiveHuntingAnimal.cs": "825d2668e9e3652d2c290eb94e3d6012921c15ba3ec7b72f16696b7b7c1de6ba",
+    "Entities.Agility.AgilityActionComponent.cs": "483b593fdb045090d92e09a4f6c6b598f1451859a06c75798a17d30cf121f399",
+    "Entities.Agility.AgilityActionStats.cs": "b581cbcad98ee9d99400d0589a0077da4be2ccf08e2f9649170355cd9cd44709",
+    "Entities.Farming.FarmingPassiveComponent.cs": "710f0e15889007238b6b0bd2f1fe9ed7baa363d28e5b789f37e142f2d53bcc57",
+    "Entities.Hunting.HuntingActionComponent.cs": "f9e4270c40a74dacedc558e1cc66760cc05d3a68755d3cb193582dc73d9069c1",
+    "Entities.Hunting.HuntingActionStats.cs": "9923163b558c54b17914d83dd6b046cece73e5066dc8f69c520796d9b797a468",
+    "Entities.Ranching.RanchingPassiveComponent.cs": "0b091f22fa3ddb790fcb445009896a3f30356420f29f5bc7ffc9154497044815",
+    "Entities.Thieving.ThievingActionComponent.cs": "27603bcdd274ee37767cdb7b887a0fc784a295609d56a222d9df33ebef133618",
+    "Entities.Thieving.ThievingActionStats.cs": "3db5adb664c65a6c39d69e53cab89606ad46597e54a54d0a74deb254f2ca1d68",
+    "WoodcuttingStats.cs": "7eee665f6c7994022399e973fbb183237e842334e223be4405332f66ec59ee00"
+  },
+  "simulations": [
+    {
+      "case": "Thieving level 1 stages 1",
+      "expected_xp_per_second": 1.5436681222707422,
+      "simulated_xp_per_second": 1.536806516059628,
+      "relative_error": 0.004445000911867503
+    },
+    {
+      "case": "Thieving level 50 stages 3",
+      "expected_xp_per_second": 2.941176470588235,
+      "simulated_xp_per_second": 2.936167713899818,
+      "relative_error": 0.0017029772740617677
+    },
+    {
+      "case": "Thieving level 99 stages 8",
+      "expected_xp_per_second": 2.491831101341485,
+      "simulated_xp_per_second": 2.49726611791741,
+      "relative_error": 0.0021811336141519533
+    },
+    {
+      "case": "Woodcutting HP 14 double 0.03",
+      "expected_xp_per_second": 0.07341868512110727,
+      "simulated_xp_per_second": 0.07343069427497592,
+      "relative_error": 0.00016357081101125992
+    },
+    {
+      "case": "Woodcutting HP 14 double 0.15",
+      "expected_xp_per_second": 0.08138461538461758,
+      "simulated_xp_per_second": 0.08139400804444114,
+      "relative_error": 0.00011541075397558664
+    },
+    {
+      "case": "Woodcutting HP 20 double 0.1",
+      "expected_xp_per_second": 0.0743601412416197,
+      "simulated_xp_per_second": 0.07427590279265016,
+      "relative_error": 0.0011328441227111963
+    }
+  ],
+  "scope": "Base action rates and one-source upgrade comparisons. No full-account or globally optimal combined-loadout claim. Combat, Hunting, Agility and passive lifecycles are not assigned unverified sustained XP/s."
+}

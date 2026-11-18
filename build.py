@@ -33,12 +33,12 @@ for original, saved in [('link','formatV2OriginalLink'),('icon','formatV2Origina
     marker='function '+original+'('
     assert app.count(marker)==1, 'Unexpected primitive declaration: '+original
     app=app.replace(marker,'function '+saved+'(',1)
-for module in ['wiki-format','training-guides','entity-pages','skill-cleanup']:
+for module in ['wiki-format','training-guides','entity-pages','skill-cleanup','training-reader']:
     app+='\n'+(root/'overrides'/f'{module}.js').read_text(encoding='utf-8-sig')
 app_path.write_text(app,encoding='utf-8')
 style=out/'style.css'
 style.write_text(style.read_text(encoding='utf-8')+'\n'+(root/'overrides/suggest.css').read_text(encoding='utf-8-sig'),encoding='utf-8')
-for module in ['wiki-format','training-guides','entity-pages','skill-cleanup']:
+for module in ['wiki-format','training-guides','entity-pages','skill-cleanup','training-reader']:
     style.write_text(style.read_text(encoding='utf-8')+'\n'+(root/'overrides'/f'{module}.css').read_text(encoding='utf-8-sig'),encoding='utf-8')
 html=out/'index.html'
 html.write_text(html.read_text(encoding='utf-8').replace("connect-src 'none'",'connect-src https://ijmztvsjdzypvxnlicbf.supabase.co'),encoding='utf-8')

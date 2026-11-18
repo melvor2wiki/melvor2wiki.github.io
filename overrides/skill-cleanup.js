@@ -9,7 +9,8 @@ function wikiReferenceOrder(name, sections) {
   const pet = sections.findIndex(s=>s[0]==='pet');if(pet>=0)sections.splice(pet,1);
   const guild=sections.find(s=>s[0]==='gilda'),boost=sections.find(s=>s[0]==='bonus');
   for(let i=sections.length-1;i>=0;i--)if(['gilda','bonus'].includes(sections[i][0]))sections.splice(i,1);
-  if(boost)sections.push(boost);if(guild)sections.push(guild);
+  const skill=publicNode('Skill',name),categories=skill?readerBoosters(skill):'';
+  if(categories)sections.push(['bonus','Skill Boosts',categories]);else if(boost)sections.push(boost);if(guild)sections.push(guild);
   if(name==='Herblore'){
     const mechanics=sections.find(s=>s[0]==='meccaniche');
     if(mechanics){mechanics[1]='Using Potions';mechanics[2]='<p>Equip a potion in its matching skill slot to use its effect. The item page lists its bonuses and consumption rules.</p><p>Brewing follows four stages: preparing, heating, stirring and bottling. Batch time includes all four stages, with ten bottling ticks. Times below are before bonuses.</p>';}
