@@ -101,7 +101,8 @@ function moneySupply(entry,level) {
 }
 function moneyThievingCycle(n,level,mods={}) {
   const m=moneyThieving(n,level,mods);
-  const damage=m.attempts*(1-m.chance)*(n.data.Damage+1)/2;
+  const avoidance=Math.min(1,Math.max(0,mods.DamageAvoidanceChance||0));
+  const damage=m.attempts*(1-m.chance)*(1-avoidance)*(n.data.Damage+1)/2;
   const food=moneySourceModel(level).food;
   if(damage>0&&!food)return null;
   const qty=damage>0?damage/food.healing:0;
@@ -136,7 +137,7 @@ function moneyRouteTable(inputs,finalStep) {
   }
   return rows.length?table(['Step','Output','Expected quantity','Time in this cycle','Cash spent','Requirements'],rows.map((row,i)=>[String(i+1)+'. '+row[0],...row.slice(1)])):'';
 }
-function moneyRequiredSkills(entry,inputs,combat,level) {
+function moneyRequiredSkills(entry,inputs,combat,level,gear=[]) {
   const levels=new Map();
   function add(skill,lvl){
     if(publicNode('Skill',skill)&&Number.isFinite(lvl))levels.set(bare(skill),Math.max(levels.get(bare(skill))||1,lvl));
@@ -156,6 +157,13 @@ function moneyRequiredSkills(entry,inputs,combat,level) {
     read(entry.n);
   }
   for(const {path} of moneyRouteSteps(inputs))read(path.node);
+  for(const {node} of gear){
+    read(node);
+    if(node.type==='AstrologyNode'){
+      const parent=(byType.get('AstrologyConstellation')||[]).find(x=>bare(node.id).startsWith(bare(x.id)));
+      if(parent)read(parent);
+    }
+  }
   return [...levels].map(([skill,lvl])=>'<span class="level-line">'+guideV2Ref('Skill',skill)+' '+number(lvl)+'</span>').join('')||'—';
 }
 function moneyRouteBoosters(entry,cycle,level) {

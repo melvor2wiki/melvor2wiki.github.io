@@ -8,9 +8,12 @@ function polishNumber(value) {
 function polishDecimalText(text) {
   return String(text).replace(/\d[\d,]*\.\d{3,}/g,x=>{const n=Number(x.replace(/,/g,''));return Math.abs(n)>=1?polishNumber(n):x;});
 }
+function goldNumber(value) {
+  return Math.round(value).toLocaleString('it-IT');
+}
 function numericCell(value,suffix='',digits) {
   const valid=typeof value==='number'&&Number.isFinite(value),currency=valid&&suffix===' GP'?publicNode('Currency','GoldPieces'):null;
-  const text=valid?polishNumber(value)+suffix:'—';
+  const text=valid?(suffix===' GP'?goldNumber(value):polishNumber(value))+suffix:'—';
   return sortValue(currency?'<span class="currency-value">'+escape(text)+icon(currency)+'</span>':text,valid?value:null,true);
 }
 function polishSourceLevel(n) {

@@ -65,6 +65,7 @@ for module in ['wiki-format','training-guides','entity-pages','skill-cleanup','t
     app+='\n'+(root/'overrides'/f'{module}.js').read_text(encoding='utf-8-sig')
 app+='\n'+(root/'overrides/money-guide.js').read_text(encoding='utf-8')
 app+='\n'+(root/'overrides/money-supply.js').read_text(encoding='utf-8-sig')
+app+='\n'+(root/'overrides/money-combos.js').read_text(encoding='utf-8-sig')
 guide_nav = """    '<a href="#/guides">Skill Training Guides</a>',\n"""
 assert app.count(guide_nav) == 1
 app = app.replace(guide_nav, guide_nav + '    moneyNavLink(),\n', 1)

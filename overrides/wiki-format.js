@@ -141,6 +141,11 @@ function publicFinishPage() {
   const walker = document.createTreeWalker(main, NodeFilter.SHOW_TEXT);
   while (walker.nextNode()) {
     const text = walker.currentNode;
-    if (!text.parentElement.closest('script,style,input,textarea,code,pre')) text.textContent = polishDecimalText(formatV2Percent(text.textContent)).replace(/&lt;/g, '<').replace(/\s*·\s*(?=Level\b)/g,' ');
+    if (!text.parentElement.closest('script,style,input,textarea,code,pre,.currency-value')) {
+      const splitGold = /(-?\d[\d,]*(?:\.\d+)?\s+GP\b)/g;
+      text.textContent = text.textContent.split(splitGold).map((part,i)=>i%2
+        ? goldNumber(Number(part.replace(/\s+GP$/,'').replaceAll(',','')))+' GP'
+        : polishDecimalText(formatV2Percent(part)).replace(/&lt;/g, '<').replace(/\s*·\s*(?=Level\b)/g,' ')).join('');
+    }
   }
 }
