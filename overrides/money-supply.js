@@ -1,12 +1,14 @@
 function moneyRepairNumbers(level) {
   return Math.min(99,Math.max(1,Math.floor(Number(level)||99)));
 }
-function moneyEligible(node,level) {
+function moneyGates(node) {
   const locationType={FishingRecipe:'FishingLocation',ThievingRecipe:'ThievingLocation'}[node.type];
   const location=locationType&&publicNode(locationType,node.data.Location||node.data.Category);
-  const gates=[...guideV2ReqList(node),...(node.data.DisplayRequirements||[]),
+  return [...guideV2ReqList(node),...(node.data.DisplayRequirements||[]),
     ...(location?[...guideV2ReqList(location),...(location.data.DisplayRequirements||[])]:[])];
-  return !gates.some(r=>{
+}
+function moneyEligible(node,level) {
+  return !moneyGates(node).some(r=>{
     const type=bare(r.Type);
     return type==='Level'&&r.Data?.Level>level ||
       /Quest(?:Step|Task|Active)|DemoLocked/.test(type);
@@ -38,7 +40,7 @@ function moneySourceModel(level) {
     const outputs=entry.skill==='Fishing'?(d.RandomProducts||[]).map(x=>({
       Item:x.Item,Quantity:moneyAverage(x)*x.Weight/d.RandomProducts.reduce((sum,y)=>sum+y.Weight,0)*(d.FishChance??d.BaseFishChance??0)
     })):d.Products||(d.Product?[d.Product]:[]);
-    recipes.push({node:entry.n,time:entry.seconds,items,cash:(input.Currencies||[]).reduce((sum,x)=>sum+x.Quantity,0),
+    recipes.push({node:entry.n,entry,time:entry.seconds,items,cash:(input.Currencies||[]).reduce((sum,x)=>sum+x.Quantity,0),
       outputs:outputs.map(x=>({id:x.Item,qty:(x.Quantity??1)*(x.Chance??1)*moneySuccess(entry,level)}))});
   }
   for(const n of byType.get('ShopPurchase')||[]){
@@ -68,7 +70,8 @@ function moneySourceModel(level) {
       const cash=recipe.cash+inputs.reduce((sum,x)=>sum+x.qty*x.path.cash,0);
       for(const output of recipe.outputs){
         if(!output.id||!(output.qty>0)||inputs.some(x=>x.path.used.has(output.id)))continue;
-        const route={id:output.id,node:recipe.node,qty:output.qty,seconds:seconds/output.qty,cash:cash/output.qty,inputs,
+        const route={id:output.id,node:recipe.node,entry:recipe.entry,qty:output.qty,actionSeconds:recipe.time,actionCash:recipe.cash,
+          seconds:seconds/output.qty,cash:cash/output.qty,inputs,
           used:new Set([output.id,...inputs.flatMap(x=>[...x.path.used])])};
         if(paths.has(output.id)&&score(paths.get(output.id))<=score(route)+1e-9)continue;
         paths.set(output.id,route);changed=true;
@@ -87,14 +90,7 @@ function moneySourceModel(level) {
 function moneySupply(entry,level) {
   if(!moneyEligible(entry.n,level))return null;
   const model=moneySourceModel(level);
-  if(entry.group==='Thieving'){
-    const m=moneyThieving(entry.n,level);
-    const damage=m.attempts*(1-m.chance)*(entry.n.data.Damage+1)/2;
-    if(damage>0&&!model.food)return null;
-    const food=model.food, qty=damage>0?damage/food.healing:0;
-    return {gp:m.gp,cash:qty?(qty*food.path.cash):0,seconds:m.seconds+(qty?qty*food.path.seconds:0),
-      inputs:qty?[{qty,path:food.path}]:[],actionSeconds:m.seconds};
-  }
+  if(entry.group==='Thieving')return moneyThievingCycle(entry.n,level);
   const ingredients=entry.n.data.Ingredients||{};
   const recurring=moneyRecurringInputs(entry.n);
   if(!recurring)return null;
@@ -103,16 +99,105 @@ function moneySupply(entry,level) {
   return {gp:entry.gross*moneySuccess(entry,level),cash:(ingredients.Currencies||[]).reduce((sum,x)=>sum+x.Quantity,0)+inputs.reduce((sum,x)=>sum+x.qty*x.path.cash,0),
     seconds:entry.seconds+inputs.reduce((sum,x)=>sum+x.qty*x.path.seconds,0),actionSeconds:entry.seconds,inputs};
 }
-function moneyRouteTable(inputs) {
+function moneyThievingCycle(n,level,mods={}) {
+  const m=moneyThieving(n,level,mods);
+  const damage=m.attempts*(1-m.chance)*(n.data.Damage+1)/2;
+  const food=moneySourceModel(level).food;
+  if(damage>0&&!food)return null;
+  const qty=damage>0?damage/food.healing:0;
+  return {gp:m.gp,cash:qty?qty*food.path.cash:0,seconds:m.seconds+(qty?qty*food.path.seconds:0),
+    inputs:qty?[{qty,path:food.path}]:[],actionSeconds:m.seconds};
+}
+function moneyCycleHourly(cycle) {
+  return cycle&&cycle.seconds>0?(cycle.gp-cycle.cash)*3600/cycle.seconds:0;
+}
+function moneyRouteSteps(inputs) {
   const steps=new Map();
   function add(path,qty,depth) {
-    const key=path.node.key+'/'+path.id, old=steps.get(key);
+    const old=steps.get(path);
     if(old){old.qty+=qty;old.depth=Math.max(old.depth,depth);}
-    else steps.set(key,{path,qty,depth});
+    else steps.set(path,{path,qty,depth});
     for(const input of path.inputs)add(input.path,qty*input.qty/path.qty,depth+1);
   }
   for(const input of inputs)add(input.path,input.qty,0);
-  return steps.size?table(['Source','Material','Expected quantity','Requirements'],[...steps.values()].sort((a,b)=>b.depth-a.depth).map(x=>[link(x.path.node,true),guideV2Ref('Item',x.path.id),numericCell(x.qty),guideV2Requirements(x.path.node)])):'';
+  return [...steps.values()].sort((a,b)=>b.depth-a.depth);
+}
+function moneyRouteTable(inputs,finalStep) {
+  const rows=moneyRouteSteps(inputs).map(({path,qty})=>[
+    link(path.node,true),guideV2Ref('Item',path.id),numericCell(qty),
+    numericCell(qty/path.qty*path.actionSeconds,' s'),moneyAmount(qty/path.qty*path.actionCash),guideV2Requirements(path.node)
+  ]);
+  if(finalStep){
+    const {entry,cycle,level}=finalStep, data=entry.n.data;
+    const products=data.Products||(data.Product?[data.Product]:[]);
+    rows.push([link(entry.n,true),products.map(x=>guideV2Ref('Item',x.Item)).join('<br>')||'—',
+      products.length===1?numericCell((products[0].Quantity??1)*(products[0].Chance??1)*moneySuccess(entry,level)):'—',
+      numericCell(cycle.actionSeconds,' s'),moneyAmount((data.Ingredients?.Currencies||[]).reduce((sum,x)=>sum+x.Quantity,0)),moneyAccess(entry)]);
+  }
+  return rows.length?table(['Step','Output','Expected quantity','Time in this cycle','Cash spent','Requirements'],rows.map((row,i)=>[String(i+1)+'. '+row[0],...row.slice(1)])):'';
+}
+function moneyRequiredSkills(entry,inputs,combat,level) {
+  const levels=new Map();
+  function add(skill,lvl){
+    if(publicNode('Skill',skill)&&Number.isFinite(lvl))levels.set(bare(skill),Math.max(levels.get(bare(skill))||1,lvl));
+  }
+  function read(node){
+    for(const gate of moneyGates(node)){
+      if(bare(gate.Type)==='Level'&&!gate.Data?.IsOr)add(gate.Data?.Component?.Entity,gate.Data?.Level);
+    }
+  }
+  if(combat){
+    for(const skill of ['Attack','Strength','Defence'])add(skill,level);
+    read(combat.w.n);
+    const areas=moneyCombat(entry.n).stats.locations.filter(x=>x.type==='CombatArea');
+    if(areas.length===1){const area=publicNode(areas[0].type,areas[0].id);if(area)read(area);}
+  }else{
+    add(entry.skill,entry.level);
+    read(entry.n);
+  }
+  for(const {path} of moneyRouteSteps(inputs))read(path.node);
+  return [...levels].map(([skill,lvl])=>'<span class="level-line">'+guideV2Ref('Skill',skill)+' '+number(lvl)+'</span>').join('')||'—';
+}
+function moneyRouteBoosters(entry,cycle,level) {
+  const actions=new Map();
+  const add=(e,time)=>{
+    if(e&&time>0)actions.set(e.n.key,{entry:e,time:(actions.get(e.n.key)?.time||0)+time});
+  };
+  add(entry,cycle.actionSeconds);
+  for(const {path,qty} of moneyRouteSteps(cycle.inputs))add(path.entry,path.actionSeconds*qty/path.qty);
+  const rows=[];
+  for(const {entry:step,time} of actions.values()){
+    const skill=publicNode('Skill',step.skill);
+    const base={type:step.n.type,id:step.n.id,xp:1,seconds:step.seconds,successChance:1};
+    const baseline=readerBoostedRate(base,level,step.skill,[]);
+    if(!skill||!(baseline>0))continue;
+    for(const {node,mods} of readerBoosterPool(skill)){
+      if(!moneyEligible(node,level)||node.type==='EquipmentSetBonus')continue;
+      const caps=Object.values(node.data.Capabilities||{});
+      if(caps.some(c=>c?.ConsumesOn?.length)||/Potion/.test(node.name))continue;
+      const applicable=mods.filter(m=>{
+        const name=m.Stat?.Name||m.StatGroup;
+        if(!/Interval|MaxHealth|DoubleDamageChance|InstantCutChance|WeakSpotChance|SkipStepChance/.test(name))return false;
+        // The generic model cannot convert a flat fishing interval or unmodeled mining effects into reward time.
+        if(step.skill==='Fishing'&&/Flat/.test(name))return false;
+        return !m.Condition&&!m.Scaling&&!m.FromContext;
+      });
+      if(!applicable.length)continue;
+      const boosted=readerBoostedRate(base,level,step.skill,applicable);
+      if(!(boosted>baseline))continue;
+      const saving=time*(1-baseline/boosted);
+      if(saving>0.001)rows.push({node,step,applicable,saving});
+    }
+  }
+  rows.sort((a,b)=>b.saving-a.saving);
+  const selected=rows.slice(0,8);
+  return (selected.length?'<h3>Upgrades that speed up this route</h3>'+table(['Booster','Step','Effect used','Time saved per cycle','Estimated profit/hour','Unlock'],selected.map(x=>[
+    readerBoosterName(x.node),link(x.step.n,true),
+    x.applicable.map(m=>m.Stat?wikiBonusText(m,x.node):wikiAllBonusText({Global:[m]},x.node)).join('<br>'),
+    numericCell(x.saving,' s'),moneyAmount((cycle.gp-cycle.cash)*3600/(cycle.seconds-x.saving)),readerBoosterRequirements(x.node)
+  ]),true)+'<p>Each comparison changes one step with one permanent booster. The remaining steps, sale prices and input quantities stay at base values.</p>':'')+
+    '<p>Check the skill pages for additional yield bonuses, preservation and potions. Temporary boosts and replacements are excluded from these comparisons.</p>'+
+    [...new Set([...actions.values()].map(x=>x.entry.skill))].map(s=>guideV2Ref('Skill',s)).join(' · ');
 }
 function moneyCombatWeapons(level) {
   moneyCombatWeapons.cache ||=new Map();
