@@ -1,0 +1,18 @@
+/* Compact tables, wiki semantic colours and consistent requirements. */
+.table-frame { width:fit-content; max-width:100%; margin-left:0; margin-right:auto; }
+.table-frame table { width:auto; table-layout:auto; }
+.requirement { text-align:left; white-space:normal; }
+.requirement-or { display:block; text-align:center; margin:2px 0; }
+.compact-requirements { margin:12px 0; }
+.compact-requirements .table-frame { margin:0; }
+.currency-icon { display:inline-flex; vertical-align:middle; }
+.currency-icon .icon { margin:0; }
+.buff,.bonus-line.buff,.text-success,.buff a,.text-success a { color:#00ff00 !important; }
+.debuff,.bonus-line.debuff,.text-danger,.debuff a,.text-danger a { color:#ff0000 !important; }
+button,input,select,textarea,.button { border-radius:0 !important; }
+.entity-v2 .entity-toc,.entity-v2 .entity-toc li,.entity-v2 .entity-toc a { text-align:left; }
+.entity-v2 .entity-combat-tables > .table-frame { margin-right:0; }
+@media(min-width:851px) {
+  .shell:has(.entity-v2),.shell:has(.training-guide-v2) { grid-template-columns:175px minmax(0,1fr); }
+  .shell:has(.entity-v2) .wiki-rightbar,.shell:has(.training-guide-v2) .wiki-rightbar { display:none; }
+}

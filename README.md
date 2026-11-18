@@ -6,7 +6,7 @@ Unofficial Melvor Idle 2 community wiki: items, recipes, sources, uses, skills, 
 
 Suggest an edit: https://melvor2wiki.github.io/#/suggest
 
-Visitors submit directly without an account. Suggestions enter a private Supabase inbox through a write-only endpoint. Email notifications are capped at one per hour and ten per rolling 24 hours. No email address, provider endpoint or private API key is published.
+Visitors submit directly without an account. Suggestions enter a private Supabase inbox through a write-only endpoint. One daily email digest is scheduled for 12:00 Europe/Rome, including daylight saving time. Empty days send no email. No email address, provider endpoint or private API key is published.
 
 ## GitHub Pages
 
@@ -23,4 +23,6 @@ Game names and artwork belong to their respective owners. This is an unofficial 
 
 Feedback UI sources: `overrides/public-suggest.js` and `overrides/suggest.css`. `feedback-config.json` contains the public submission endpoint. The form validates input, preserves text after an error, prevents accidental duplicate sends and includes a honeypot. The public endpoint enforces atomic rolling limits (5 per network identifier/10 minutes, 20 per identifier/24 hours, 100 globally/hour, 500 globally/24 hours) and deduplicates matching messages. Network identifiers are HMAC pseudonyms; no raw IP is stored in the inbox. Global limits and notification limits remain effective independently of client identifiers.
 
-Database access is denied to anonymous and ordinary authenticated API roles. Maintainer access uses the project dashboard. Server code and SQL are in `backend/`; provider settings are stored privately in the database, never in this repository. The notification budget is reserved before delivery; failed sends do not retry automatically.
+Database access is denied to anonymous and ordinary authenticated API roles. Maintainer access uses the project dashboard. Server code and SQL are in `backend/`; provider settings are stored privately in the database, never in this repository. The digest reserves one attempt per local day and advances its feedback membership only after provider acceptance. Ambiguous sends may recur in the next day’s summary. See `backend/daily-digest.md` for scheduling, payload limits and monitoring.
+
+Reader-facing page sources are in `overrides/wiki-format.*`, `overrides/entity-pages.*` and `overrides/training-guides.*`. Training tables cover levels 1–99. Twelve skills have calculated base XP/s; other guides show actual unlocks and state when a full-cycle rate is unavailable.

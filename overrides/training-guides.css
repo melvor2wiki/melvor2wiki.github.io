@@ -1,0 +1,10 @@
+.training-guide-v2 .guide-lead{max-width:80ch;line-height:1.65}
+.training-guide-v2 .wiki-section>p{max-width:88ch;line-height:1.6}
+.training-guide-v2 td{vertical-align:top;line-height:1.5}
+.training-guide-v2 .guide-option+.guide-option{margin-top:.7rem;padding-top:.65rem;border-top:1px solid var(--border,#c8ccd1)}
+.training-guide-v2 .guide-unavailable{font-size:.9em;color:var(--muted,#5f6b75)}
+.training-guide-v2 .guide-gear-req{display:block;margin-top:.25rem;font-size:.9em}
+.training-guide-v2 .wiki-toc{margin:1.25rem 0 1.75rem}
+.training-guide-v2 td:first-child{white-space:nowrap}
+.training-guide-v2 .wiki-section{scroll-margin-top:1.5rem}
+@media(max-width:700px){.training-guide-v2 td{min-width:9rem}.training-guide-v2 td:first-child{min-width:4.5rem}.training-guide-v2 .wiki-toc{max-width:100%}}

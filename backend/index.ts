@@ -31,22 +31,13 @@ Deno.serve(async (req:Request)=>{
   if(typeof data?.page!=='string'||typeof data?.suggestion!=='string'||typeof data?.path!=='string')return reply({error:'Invalid fields'},400);
   const page=data.page.trim(),message=data.suggestion.trim(),path=data.path;
   if(!page||page.length>200||message.length<10||message.length>4000||path.length>1800||!path.startsWith('#'))return reply({error:'Invalid fields'},400);
-  // Network identifiers are heuristic. Independent global limits and atomic mail budgets remain effective even if a client identifier changes.
+  // Network identifiers are heuristic. Independent global limits remain effective even if a client identifier changes.
   const ip=req.headers.get('cf-connecting-ip')||(req.headers.get('x-forwarded-for')||'unknown').split(',')[0].trim();
   const client=await tag(ip);
   const dedupe=await hex(await crypto.subtle.digest('SHA-256',encoder.encode(page+'\n'+message)));
   const result=await rpc('feedback_ingest',{p_client:client,p_dedupe:dedupe,p_page:page,p_url:SITE+'/'+path,p_message:message});
   if(!result?.accepted)return reply({error:result?.code||'Unavailable'},result?.code==='rate_limited'?429:400,result?.retry_after?{'Retry-After':String(result.retry_after)}:{});
-  if(!result.duplicate){
-   // Reserve BEFORE sending. A timeout never retries automatically; stored suggestions are not lost.
-   try{
-    const claim=await rpc('feedback_claim_notification',{});
-    if(claim){let delivered=false;
-     try{const r=await fetch(claim.endpoint,{method:'POST',signal:AbortSignal.timeout(7000),headers:{'Content-Type':'application/json','Accept':'application/json','Referer':SITE+'/'},body:JSON.stringify({_subject:'[Melvor 2 Wiki] New feedback in private inbox',_captcha:'false',_template:'table',_url:SITE+'/',notice:'New suggestions are saved in your private inbox. Email notifications are limited to one per hour and ten per 24 hours.',private_inbox:claim.inbox_url})});const j=await r.json();delivered=r.ok&&(j.success===true||j.success==='true');}catch{}
-     await rpc('feedback_record_notification',{p_id:claim.attempt,p_delivered:delivered});
-    }
-   }catch{/* The suggestion is already stored; never fail or resend it because notification delivery failed. */}
-  }
+  // Notifications are scheduled privately by daily-digest.sql; intake only stores feedback.
   return reply({success:true},202);
  }catch{return reply({error:'Temporarily unavailable'},503);}
 });
