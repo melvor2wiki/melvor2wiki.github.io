@@ -3,13 +3,13 @@ function publicSuggest(params) {
   const rawPath = params.get('path') || '#';
   const path = rawPath.startsWith('#') ? rawPath.slice(0, 1800) : '#';
   const endpoint = window.WIKI_CONFIG?.suggestionEndpoint;
-  const connected = /^https:\/\/formsubmit\.co\/ajax\/[a-f0-9]{32}$/.test(endpoint || '');
+  const connected = /^https:\/\/[a-z0-9]{16,32}\.supabase\.co\/functions\/v1\/submit-feedback$/.test(endpoint || '');
   main.innerHTML = '<h1>Suggest an edit</h1><p>Found something missing or incorrect? Send a suggestion here. No account needed.</p>' +
     '<form id="suggest-form"><label>Wiki page<input name="page" required maxlength="200" value="' + escape(page) + '"></label>' +
-    '<label>Your suggestion<textarea name="change" required minlength="10" maxlength="5000" rows="8" placeholder="Tell us what should change, be added or be explained better."></textarea></label>' +
+    '<label>Your suggestion<textarea name="change" required minlength="10" maxlength="4000" rows="8" placeholder="Tell us what should change, be added or be explained better."></textarea></label>' +
     '<div class="feedback-honeypot" aria-hidden="true"><label>Leave this empty<input name="website" tabindex="-1" autocomplete="off"></label></div>' +
     '<button type="submit"' + (connected ? '' : ' disabled') + '>Send suggestion</button><p id="suggest-status" role="status" aria-live="polite"></p>' +
-    '<p class="feedback-privacy">Sent privately to the wiki maintainer by email via <a href="https://formsubmit.co/privacy.pdf" target="_blank" rel="noopener noreferrer">FormSubmit</a>. Please do not include passwords or personal save files.</p></form>';
+    '<p class="feedback-privacy">Suggestions are stored in a private inbox. A hashed network identifier helps limit spam. Please do not include passwords or personal save files.</p></form>';
   const form = document.getElementById('suggest-form');
   const button = form.querySelector('button[type="submit"]');
   const message = form.elements.change;
@@ -33,21 +33,18 @@ function publicSuggest(params) {
     try {
       const pageTitle = form.elements.page.value.trim().slice(0, 200);
       const response = await fetch(endpoint, {
-        method: 'POST', signal: abort.signal, credentials: 'omit', referrerPolicy: 'origin',
+        method: 'POST', signal: abort.signal, credentials: 'omit', referrerPolicy: 'no-referrer',
         headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-        body: JSON.stringify({
-          _subject: '[Melvor 2 Wiki] Suggestion: ' + pageTitle.replace(/[\r\n]/g, ' '),
-          _captcha: 'false', _template: 'table', _url: 'https://melvor2wiki.github.io/',
-          wiki_page: pageTitle, page_url: 'https://melvor2wiki.github.io/' + path, suggestion: text
-        })
+        body: JSON.stringify({page: pageTitle, path, suggestion: text, website: form.elements.website.value})
       });
+      if (response.status === 429) { const error = new Error('Rate limited'); error.rateLimited = true; throw error; }
       const result = await response.json();
       if (!response.ok || !(result.success === true || result.success === 'true')) throw new Error('Submission not accepted');
       try { sessionStorage.setItem('melvorSuggestionLastSent', String(Date.now())); } catch {}
       status.textContent = 'Suggestion sent. Thank you!'; status.dataset.state = 'success';
       message.value = ''; sent = true;
-    } catch {
-      status.textContent = 'Could not confirm delivery. Your text is still here. Please wait a moment before trying again.';
+    } catch (error) {
+      status.textContent = error.rateLimited ? 'Too many suggestions right now. Please try again later. Your text is still here.' : 'Could not confirm delivery. Your text is still here. Please wait a moment before trying again.';
       status.dataset.state = 'error';
     } finally {
       clearTimeout(timer); sending = false; button.disabled = sent; button.textContent = 'Send suggestion';

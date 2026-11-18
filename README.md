@@ -6,11 +6,11 @@ Unofficial Melvor Idle 2 community wiki: items, recipes, sources, uses, skills, 
 
 Suggest an edit: https://melvor2wiki.github.io/#/suggest
 
-Visitors submit directly without an account. Suggestions are delivered privately to the maintainer through FormSubmit; the public configuration contains a receiver alias, not the email address or a private API key.
+Visitors submit directly without an account. Suggestions enter a private Supabase inbox through a write-only endpoint. Email notifications are capped at one per hour and ten per rolling 24 hours. No email address, provider endpoint or private API key is published.
 
 ## GitHub Pages
 
-This repository publishes through GitHub Actions. `python3 build.py` validates and reconstructs the static release into `public/`. The workflow connects the suggestion form to this repository using `GITHUB_REPOSITORY`, then publishes only the static website. No private API keys or personal save data are included. The CSP permits feedback requests only to FormSubmit; all game assets remain local.
+This repository publishes through GitHub Actions. `python3 build.py` validates and reconstructs the static release into `public/`. The workflow connects the suggestion form to this repository using `GITHUB_REPOSITORY`, then publishes only the static website. No private API keys or personal save data are included. The CSP permits feedback requests only to the dedicated Supabase project; all game assets remain local.
 
 ## Inspect or preview
 
@@ -21,4 +21,6 @@ Training guides contain base action comparisons and selected-mechanic simulation
 Game names and artwork belong to their respective owners. This is an unofficial community wiki. PT Serif is provided under its included OFL license.
 
 
-Feedback UI sources: `overrides/public-suggest.js` and `overrides/suggest.css`. `feedback-config.json` contains the public submission endpoint. The form validates input, preserves text after an error, prevents accidental duplicate sends and includes a honeypot. FormSubmit provides the external email delivery service.
+Feedback UI sources: `overrides/public-suggest.js` and `overrides/suggest.css`. `feedback-config.json` contains the public submission endpoint. The form validates input, preserves text after an error, prevents accidental duplicate sends and includes a honeypot. The public endpoint enforces atomic rolling limits (5 per network identifier/10 minutes, 20 per identifier/24 hours, 100 globally/hour, 500 globally/24 hours) and deduplicates matching messages. Network identifiers are HMAC pseudonyms; no raw IP is stored in the inbox. Global limits and notification limits remain effective independently of client identifiers.
+
+Database access is denied to anonymous and ordinary authenticated API roles. Maintainer access uses the project dashboard. Server code and SQL are in `backend/`; provider settings are stored privately in the database, never in this repository. The notification budget is reserved before delivery; failed sends do not retry automatically.

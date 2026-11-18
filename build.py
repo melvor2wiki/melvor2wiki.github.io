@@ -26,9 +26,9 @@ app_path.write_text(app,encoding='utf-8')
 style=out/'style.css'
 style.write_text(style.read_text(encoding='utf-8')+'\n'+(root/'overrides/suggest.css').read_text(encoding='utf-8-sig'),encoding='utf-8')
 html=out/'index.html'
-html.write_text(html.read_text(encoding='utf-8').replace("connect-src 'none'",'connect-src https://formsubmit.co'),encoding='utf-8')
+html.write_text(html.read_text(encoding='utf-8').replace("connect-src 'none'",'connect-src https://ijmztvsjdzypvxnlicbf.supabase.co'),encoding='utf-8')
 feedback=json.loads((root/'feedback-config.json').read_text(encoding='utf-8-sig'))
-assert re.fullmatch(r'https://formsubmit\.co/ajax/[a-f0-9]{32}',feedback['suggestionEndpoint']), 'Invalid public form endpoint'
+assert re.fullmatch(r'https://ijmztvsjdzypvxnlicbf\.supabase\.co/functions/v1/submit-feedback',feedback['suggestionEndpoint']), 'Invalid public form endpoint'
 config={'issueRepository':os.environ.get('GITHUB_REPOSITORY','melvor2wiki/melvor2wiki.github.io'),**feedback}
 (out/'config.js').write_text('window.WIKI_CONFIG = '+json.dumps(config)+';\n',encoding='utf-8')
 print('Anonymous suggestion form configured; no email address or private key embedded')
