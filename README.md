@@ -1,19 +1,19 @@
 # Melvor 2 Wiki
 
+Website: https://melvor2wiki.github.io/
+
 Unofficial Melvor Idle 2 community wiki: items, recipes, sources, uses, skills, monsters and training guides.
 
-Target website: https://seriafrancesco.github.io/melvor2wiki/
-
-Suggest an edit: https://github.com/seriafrancesco/melvor2wiki/issues
+Suggest an edit: https://github.com/melvor2wiki/melvor2wiki.github.io/issues
 
 ## GitHub Pages
 
-This site publishes through GitHub Actions. Pages must use **GitHub Actions** as its publishing source in the repository settings. The workflow runs `python3 build.py`, verifies the archived release digest, then uploads only `public/` to Pages. No API keys, personal saves, third-party scripts or application backend are required.
+This repository publishes through GitHub Actions. `python3 build.py` validates and reconstructs the static release into `public/`. The workflow connects the suggestion form to this repository using `GITHUB_REPOSITORY`, then publishes only the static website. No application backend, API keys or personal save data are included.
 
-## Inspect or run locally
+## Inspect or preview
 
-Run `python3 build.py`, then `python3 -m http.server --directory public 8787`. The complete client source is in `public/app.js`, `public/style.css`, `public/data.js` and `public/index.html`.
+Run `python3 build.py`, then `python3 -m http.server --directory public 8787`. The release is split into base64 text parts for transport through the GitHub connector. `release-manifest.json` records its SHA-256 integrity. The complete client source is reconstructed in `public/`.
 
-The release is split into base64 text parts for transfer through the GitHub connector. `release-manifest.json` records size and SHA-256 integrity. Training guides contain base action comparisons and selected-mechanic simulations; they are not a full account simulator or proof of globally optimal loadouts.
+Training guides contain base action comparisons and selected-mechanic simulations. They are not a full account simulator or proof of globally optimal loadouts.
 
-Game names and artwork belong to their respective owners. This project is unaffiliated with the official Melvor wiki. PT Serif is provided under its included OFL license.
+Game names and artwork belong to their respective owners. This is an unofficial community wiki. PT Serif is provided under its included OFL license.
