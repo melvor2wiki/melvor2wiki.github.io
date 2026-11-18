@@ -1,13 +1,13 @@
 /* Shared reader-facing formatting. Function declarations are intentionally hoisted. */
-function publicFraction(p) {
-  if (!(p > 0)) return '0';
-  if (p >= 1) return '1/1';
-  return '1/' + polishNumber(1 / p);
-}
 function publicChanceDisplay(p) {
   if (!Number.isFinite(p)) return '—';
-  const percent = polishNumber(p*100) + '%';
-  return publicFraction(p) + ' (' + percent + ')';
+  if (p <= 0) return '<span class="drop-odds">0%</span>';
+  publicChanceDisplay.regular ||= new Intl.NumberFormat('it-IT',{maximumFractionDigits:2});
+  publicChanceDisplay.small ||= new Intl.NumberFormat('it-IT',{maximumSignificantDigits:3});
+  const ratio = publicChanceDisplay.regular.format(1 / p);
+  const percent = p * 100;
+  const percentage = (percent < 1 ? publicChanceDisplay.small : publicChanceDisplay.regular).format(percent);
+  return '<span class="drop-odds">1/' + ratio + ' (' + percentage + '%)</span>';
 }
 function link(node, withIcon = false) {
   if (/^(AstrologyNode|AstrologyStarNode|MasteryGuildBonus|MasteryGuildRank)$/.test(node?.type)) return (withIcon ? icon(node) : '') + escape(node.name);
@@ -31,7 +31,10 @@ function itemEntry(value, source, withChance = false) {
     const currency = publicNode('Currency', value.Currency), min = value.Quantity ?? value.MinQuantity, max = value.MaxQuantity ?? min;
     return '<span class="item-line">' + (currency ? link(currency, true) : 'Gold') + (min == null ? '' : ' ' + number(min) + (max > min ? '–' + number(max) : '')) + (withChance && value.Chance < 1 ? ' · ' + publicChanceDisplay(value.Chance) : '') + '</span>';
   }
-  const entry = formatV2OriginalItemEntry(value, source, withChance);
+  const chance = withChance && Number.isFinite(value.Chance) && value.Chance < 1
+    ? ' · ' + publicChanceDisplay(value.Chance) : '';
+  const entry = formatV2OriginalItemEntry(chance ? {...value, Chance: undefined} : value, source, withChance)
+    .replace(/<\/span>$/, chance + '</span>');
   const min = value.Quantity ?? value.MinQuantity;
   return min === 1 && !(value.MaxQuantity > 1) ? entry.replace('> ×1</span>', '></span>') : entry;
 }
@@ -65,7 +68,7 @@ function table(headers, rows, sortable = false) {
     if (omit.has(i)) return;
     const values = rows.map(r=>text(r[i]));
     if(rows.length && values.every(v=>!v || /^[—–-]$/.test(v))) omit.add(i);
-    else if((rows.length > 1 || /^Creation Time$/i.test(heading)) && !/^(?:Name|Item|Potion|Product|Source|Skill|Monster|Pet|Rank|Objective|Task|Action|Levels?|Tier)/i.test(heading) && values.every(v=>v===values[0]) && values[0] && !/^(?:XP|XP\/s|Value|Sell Price|Quantity|Qty|Points|Count|Effects?|Bonuses?|Modifiers?)$/i.test(heading)) {
+    else if((rows.length > 1 || /^Creation Time$/i.test(heading)) && !/^(?:Name|Item|Potion|Product|Source|Skill|Monster|Pet|Rank|Objective|Task|Action|Levels?|Tier)/i.test(heading) && values.every(v=>v===values[0]) && values[0] && !/^(?:XP|XP\/s|Value|Sell Price|Quantity|Qty|Points|Count|Chance|Result|Effects?|Bonuses?|Modifiers?)$/i.test(heading)) {
       omit.add(i);
       const shownAbove = pageBaseInterval != null && /(?:Time|Interval)$/i.test(heading) &&
         values[0].replace(/\s+/g, '') === number(pageBaseInterval / 1000) + 's';
@@ -77,11 +80,8 @@ function table(headers, rows, sortable = false) {
     const obj = cell && typeof cell === 'object';
     let html = String(obj ? cell.html : cell ?? '—');
     const percentValue = /^\d[\d,.]*%$/.test(html.trim()) ? Number(html.replace(/[, %]/g, '')) / 100 : null;
-    html = formatV2Percent(html);
-    if (/^Chance(?: \(%\))?$/.test(names[i])) {
-      html = html.replace(/(?<![\w"=])([\d,]+)\/([\d,]+)(?![\w])/g, (_, a, b) => publicFraction(Number(a.replace(/,/g, '')) / Number(b.replace(/,/g, ''))));
-      if (names[i] === 'Chance' && percentValue != null) html = publicChanceDisplay(percentValue);
-    }
+    if (!html.includes('class="drop-odds"')) html = formatV2Percent(html);
+    if (names[i] === 'Chance' && percentValue != null) return lootChanceCell(percentValue);
     return obj ? {...cell, html} : html;
   }));
   const keptFields=originalFields.filter(i=>!omit.has(i));
@@ -141,7 +141,7 @@ function wikiPetChance(pet) {
 function formatV2Pets() {
   const pets = byType.get('Pet') || [];
   main.innerHTML = '<h1>Pets</h1><p>Pets provide permanent bonuses once unlocked. Their effects remain active without equipping them.</p>' +
-    wikiSection('drop-rates', 'Drop Rates', '<p>For pets earned through skill XP, each XP gain gives a separate roll. Divide the XP from that gain by the pet’s scale factor to find its chance. Most skill pets use <strong>13,034,431</strong>.</p><p>For example, a 100 XP gain gives about <strong>1/130,344</strong> per roll. A 1,000 XP gain gives about <strong>1/13,034</strong>. Larger XP gains improve each roll; faster actions give more rolls.</p><p>Every roll is independent. A long dry streak does not improve the next roll, and reaching 13 million total XP does not guarantee a pet. With 100 XP per action and a scale factor of 13,034,431, roughly 90,346 actions give a 50% chance of finding it at least once.</p><p>Some pets instead require a task or a specific event. Their own pages list those conditions.</p>') +
+    wikiSection('drop-rates', 'Drop Rates', '<p>For pets earned through skill XP, each XP gain gives a separate roll. Divide the XP from that gain by the pet’s scale factor to find its chance. Most skill pets use <strong>13,034,431</strong>.</p><p>For example, a 100 XP gain gives about <strong>' + publicChanceDisplay(100 / 13034431) + '</strong> per roll. A 1,000 XP gain gives about <strong>' + publicChanceDisplay(1000 / 13034431) + '</strong>. Larger XP gains improve each roll; faster actions give more rolls.</p><p>Every roll is independent. A long dry streak does not improve the next roll, and reaching 13 million total XP does not guarantee a pet. With 100 XP per action and a scale factor of 13,034,431, roughly 90,346 actions give a 50% chance of finding it at least once.</p><p>Some pets instead require a task or a specific event. Their own pages list those conditions.</p>') +
     wikiSection('pet-list', 'Pet List', table(['Pet', 'Unlock Conditions', 'Effect'], pets.map(p => [link(p, true), wikiPetChance(p), wikiAllBonusText(p.data.Bonuses, p)]), true));
 }
 function publicRoute(screen, params) {
@@ -169,7 +169,7 @@ function publicFinishPage() {
   const walker = document.createTreeWalker(main, NodeFilter.SHOW_TEXT);
   while (walker.nextNode()) {
     const text = walker.currentNode;
-    if (!text.parentElement.closest('script,style,input,textarea,code,pre,.currency-value')) {
+    if (!text.parentElement.closest('script,style,input,textarea,code,pre,.currency-value,.drop-odds')) {
       const splitGold = /(-?\d[\d,]*(?:\.\d+)?\s+GP\b)/g;
       text.textContent = text.textContent.split(splitGold).map((part,i)=>i%2
         ? goldNumber(Number(part.replace(/\s+GP$/,'').replaceAll(',','')))+' GP'

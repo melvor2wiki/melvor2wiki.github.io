@@ -244,7 +244,7 @@ function moneyMethod(entry,params) {
     if(breakEven&&ready)details+='<p>To beat '+moneyStrategyLink(best.entry,level)+' at level '+number(level)+', average under <strong>'+number(breakEven)+' s per kill</strong> at the supply cost entered above.</p>';
     const drops=n.data.Drops||{},loot=(drops.ItemTables||[]).flatMap(t=>{
       const weight=t.Table.reduce((sum,x)=>sum+x.Weight,0);
-      return t.Table.map(x=>{const p=(t.Chance??1)*x.Weight/weight;return [guideV2Ref('Item',x.Item),publicQty(x),numericCell(p*100,'%'),moneyAmount(p*moneyAverage(x)*moneyQuote(x.Item))];});
+      return t.Table.map(x=>{const p=(t.Chance??1)*x.Weight/weight;return [guideV2Ref('Item',x.Item),publicQty(x),lootChanceCell(p),moneyAmount(p*moneyAverage(x)*moneyQuote(x.Item))];});
     });
     if(loot.length)details+='<h3>Random drops</h3>'+table(['Item','Qty','Chance per kill','Average GP/kill'],loot,true);
     setup='<p>Reference stats use level '+number(level)+' Attack, Strength and Defence, a normal melee attack, enemy evasion and resistance, a 3-second respawn and food replacement. Optimized across the listed melee weapons with no ammo. Armour gear, special attacks, healing, combat triangle and area effects are outside the estimate. Use measured times for bosses or for any setup with active effects.</p>'+

@@ -3,10 +3,18 @@
 .icon { display:inline-block; vertical-align:-.3em; flex-shrink:0; }
 .row-link>.icon { margin-right:4px; }
 .requirement,.level-line { display:flex; align-items:center; justify-content:flex-start; gap:4px; line-height:1.6; }
-.requirement>.row-link,.level-line>a { display:inline-flex; align-items:center; }
-.requirement .icon,.level-line .icon { display:block; margin:0; width:24px; height:24px; }
-.home-navigation .row-link,.home-navigation strong { display:inline-block; vertical-align:middle; line-height:1.6; }
-.home-navigation .row-link>.icon { vertical-align:middle; margin-top:-2px; }
+.requirement>.row-link,.level-line>a,.item-line>.row-link,.currency-value { display:inline-flex; align-items:center; vertical-align:middle; }
+.requirement>.row-link,.level-line>a,.item-line>.row-link { gap:4px; }
+.requirement .icon,.level-line .icon,.item-line>.row-link>.icon { display:block; margin:0; }
+.requirement .icon,.level-line .icon { width:24px; height:24px; }
+.currency-value { gap:2px; white-space:nowrap; }
+.home-navigation .nav-row { display:flex; flex-wrap:wrap; justify-content:center; align-items:center; line-height:1.6; }
+.home-navigation .nav-row > strong,.home-navigation .nav-link,.home-navigation .nav-link > a {
+  display:inline-flex; align-items:center; line-height:inherit;
+}
+.home-navigation .nav-row > strong { margin-right:.4rem; }
+.home-navigation .nav-link > a > .icon { display:block; margin:0 4px 0 0; }
+.drop-odds { white-space:nowrap; }
 .loot-sources td:first-child { text-align:left; }
 .loot-sources td { white-space:nowrap; }
 .loot-sources th,.loot-sources td { padding:7px 9px; }

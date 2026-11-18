@@ -49,6 +49,70 @@ assert app.count(marker)==1
 app=app.replace(marker, '  const results = catalogUnique(matches, screen === "cerca" && !type);\n'+marker)
 app=app.replace('const brand = imageSource(visuals.logo);','const brand = "data:image/webp;base64,'+base64.b64encode((root/'overrides/logo-high-resolution.webp').read_bytes()).decode()+'";')
 app=app.replace('const number = value => italian.format(value);','const number = value => polishNumber(value);')
+# Keep all loot views on the same probability model.
+for name, marker in [
+    ('wikiFish', 'function wikiMiningRocks('),
+    ('publicRefChance', 'function publicItem('),
+    ('publicFraction', 'function publicEnemyValue('),
+    ('wikiProductRows', 'function wikiThievingAreas('),
+]:
+    start = app.index('function ' + name + '(')
+    end = app.index(marker, start)
+    app = app[:start] + app[end:]
+start = app.index('  const dropTable = (heading, entries, activation = null)')
+end = app.index('  if (node.type === "Item")', start)
+app = app[:start] + '''  const dropTable = (heading, entries, activation = 1) => {
+    chunks.push(lootTable(heading, node, entries, row => lootWeightedChance(entries, row, activation),
+      node.type === 'ThievingRecipe' ? (heading === 'Completion Loot' ? 'Base chance per completed target.' : 'Base chance per successful stage.') : ''));
+  };
+''' + app[end:]
+app = app.replace('["CompletionDropTable", "Completion Loot", null]', '["CompletionDropTable", "Completion Loot", 1]')
+app = app.replace('itemTable("Special Products", d.SpecialProducts);',
+    'chunks.push(lootTable("Special Items", node, d.SpecialProducts, row => lootActionChance(node, "SpecialProducts", row)));')
+app = app.replace('if (d.Levels?.length) chunks.push', '''if (node.type === "FishingRecipe") chunks.push(
+    lootTable("Fish", node, d.RandomProducts, row => lootActionChance(node, "RandomProducts", row), "Base chance per fishing action.")
+  );
+  if (d.Levels?.length) chunks.push''', 1)
+app = app.replace('itemList(n.data.RandomProducts, n), itemList(n.data.SpecialProducts, n)', 'lootItemList(n, "RandomProducts"), lootItemList(n, "SpecialProducts")')
+app = app.replace('itemEntry(item, node, true)).join("<br>")', 'itemEntry({...item, Chance: lootActionChance(node, "SpecialProducts", item)}, node, true)).join("<br>")')
+app = app.replace('Within a table, item chance equals its weight divided by the total weight. Table activation is a separate roll.',
+    'Chances include the table activation roll and use the base rates for a successful stage or a completed target.')
+app = app.replace('escape(publicRefChance(r))', 'publicRefChance(r)')
+start = app.index('    let chance = typeof p.Chance')
+end = app.index('    const skill = [...(owners.get(ref.from.key)', start)
+app = app[:start] + '''    const chance = publicRefChance(ref);
+''' + app[end:]
+app = app.replace('"Quantity", "Chance or Weight"], computed.map', '"Quantity", "Chance"], computed.map')
+app = app.replace("amount + '</span>', escape(chance)", "amount + '</span>', chance")
+
+app = app.replace('numericCell(p.Quantity), numericCell(p.Chance * 100, "%")',
+    'numericCell(p.Quantity), lootChanceCell(p.Chance)')
+app = app.replace('numericCell(d.BaseCurrencyLootChance * 100, "%")', 'lootChanceCell(d.BaseCurrencyLootChance)')
+app = app.replace('numericCell(n.data.BaseProductChance * 100, "%")', 'lootChanceCell(n.data.BaseProductChance)')
+app = app.replace('"Base Product Chance"', '"Early Break Chance"')
+app = app.replace('numericCell(n.data.FishChance * 100, "%")', 'lootChanceCell(n.data.FishChance)')
+app = app.replace('link(n) + " · " + number(n.data.FishChance * 100) + "%"',
+    'link(n) + " · " + publicChanceDisplay(n.data.FishChance)')
+app = app.replace('  const itemTable = (heading, entries) => {\n    if (!entries?.length) return;',
+    '  const itemTable = (heading, entries) => {\n    if (!entries?.length) return;\n    const showChance = entries.some(p => Number.isFinite(p.Chance) && p.Chance < 1);')
+app = app.replace('item?.data.SellsFor ? escape(value(item)) : "—", numericCell(p.Chance != null ? p.Chance * 100 : 100, "%")',
+    'item?.data.SellsFor ? escape(value(item)) : "—", ...(showChance ? [lootChanceCell(p.Chance ?? 1)] : [])')
+app = app.replace('"Sell Price per Unit", "Base Chance"], entries.map',
+    '"Sell Price per Unit", ...(showChance ? ["Chance"] : [])], entries.map')
+start = app.index('function publicDetail(')
+end = app.index('function publicGuides(', start)
+detail = app[start:end]
+detail = detail.replace('let out=publicHead(n);', 'let out="";')
+detail = re.sub(r"  const req=requirements\(n\);[^\n]*\n\s*if\(d\.BaseExperience[^\n]*\n", '', detail, count=1)
+detail = detail.replace("if(properties.length && n.type!=='MasteryGuildRank')",
+    "if(properties.length && !['MasteryGuildRank','ThievingRecipe'].includes(n.type))")
+detail = detail.replace('main.innerHTML=out;return true;', '''const facts = entityV2RecordFacts(n);
+  if (facts.length) {
+    const description = d.Description ? '<p>' + escape(clean(displayText(d.Description))) + '</p>' : '';
+    entityV2Render(n,facts,[],description+out);
+  } else main.innerHTML=publicHead(n)+out;
+  return true;''')
+app = app[:start] + detail + app[end:]
 # Keep shared primitives available to the focused reader-facing overrides.
 for original, saved in [('link','formatV2OriginalLink'),('icon','formatV2OriginalIcon'),('table','formatV2OriginalTable'),('itemEntry','formatV2OriginalItemEntry'),
                         ('wikiTaskCondition','formatV2OriginalTaskCondition'),
@@ -67,10 +131,11 @@ app+='\n'+(root/'overrides/money-guide.js').read_text(encoding='utf-8')
 app+='\n'+(root/'overrides/money-supply.js').read_text(encoding='utf-8-sig')
 app+='\n'+(root/'overrides/money-combos.js').read_text(encoding='utf-8-sig')
 app+='\n'+(root/'overrides/idle-calculator.js').read_text(encoding='utf-8')
+app+='\n'+(root/'overrides/drop-odds.js').read_text(encoding='utf-8')
 app+='\n'+(root/'overrides/training-route.js').read_text(encoding='utf-8')
-guide_nav = """    '<a href="#/guides">Skill Training Guides</a>',\n"""
-assert app.count(guide_nav) == 1
-app = app.replace(guide_nav, guide_nav + """    moneyNavLink(),
+other_nav = '    navGroup("quests"), navGroup("shops"), navGroup("mastery"), navGroup("pets"),\n'
+assert app.count(other_nav) == 1
+app = app.replace(other_nav, other_nav + """    moneyNavLink(),
     '<a class="row-link" href="#/idle">' + combatSwordsIcon() + 'Can I Idle?</a>',
 """, 1)
 for character in '\u2013\u2014\u2019\u00d7\u00b7':

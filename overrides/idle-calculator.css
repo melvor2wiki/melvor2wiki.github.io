@@ -7,6 +7,5 @@
 #idle-profile details { margin-top: .75rem; }
 #idle-profile details .idle-fields { margin-top: .5rem; }
 .idle-result { font-weight: 700; white-space: nowrap; }
-.idle-fit { color: #32cd32; }
-.idle-exceeds { color: #ff5348; }
-.idle-review { color: #f0c46e; }
+#idle-results tbody tr:has(.idle-fit) > td { background-color: #304b3d; }
+#idle-results tbody tr:has(.idle-exceeds, .idle-review) > td { background-color: #3b4046; }

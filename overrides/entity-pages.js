@@ -16,10 +16,35 @@ function entityV2Money(q, id) {
   return '<span class="entity-money">' + (currency ? icon(currency) : '') + number(q) + '</span>';
 }
 function entityV2Infobox(n, rows) {
-  const src = imageSource(n.image);
+  const artwork = n.data.CoverBackground || n.image;
+  const src = /missing_artwork|placeholder/i.test(artwork || '') ? '' : imageSource(artwork);
   return '<aside class="wiki-infobox entity-infobox" aria-label="' + escape(n.name) + ' information"><h2>' + escape(n.name) + '</h2>' +
     (src ? '<div class="infobox-art"><img src="' + src + '" alt="' + escape(n.name) + '"></div>' : '') +
     '<dl><dt>ID</dt><dd><code>' + escape(n.id) + '</code></dd>' + rows.filter(r => r[1] !== '' && r[1] != null).map(r => '<dt>' + escape(r[0]) + '</dt><dd>' + r[1] + '</dd>').join('') + '</dl></aside>';
+}
+function entityV2RecordFacts(n) {
+  const d = n.data, rows = [];
+  if (n.type === 'ThievingRecipe' && d.Category) {
+    const location = publicNode('ThievingLocation', d.Category);
+    if (location) rows.push(['Area', link(location, true)]);
+  }
+  const req = entityV2Requirements(n);
+  if (req && req !== '—') rows.push(['Requirements', req]);
+  for (const [label, info] of metrics(n)) {
+    if (label !== 'Required Level') rows.push([label === 'Base XP' ? 'XP' : label, escape(info)]);
+  }
+  if (n.type === 'ThievingRecipe') {
+    if (Number.isFinite(d.Stages)) rows.push(['Stages', number(d.Stages)]);
+    if (Number.isFinite(d.Perception)) rows.push(['Perception', number(d.Perception)]);
+    if (Number.isFinite(d.Damage)) rows.push(['Damage on failure', number(d.Damage)]);
+    if (d.CurrencyReward) {
+      const {Currency, MinQuantity, MaxQuantity} = d.CurrencyReward;
+      const amount = MinQuantity === MaxQuantity ? number(MinQuantity) : number(MinQuantity) + '–' + number(MaxQuantity);
+      rows.push(['Gold reward', entityV2Named('Currency', Currency) + ' ' + amount]);
+      if (Number.isFinite(d.BaseCurrencyLootChance)) rows.push(['Gold chance', publicChanceDisplay(d.BaseCurrencyLootChance)]);
+    }
+  }
+  return rows;
 }
 function entityV2Render(n, rows, sections, intro = '') {
   const toc = '<nav class="wiki-toc entity-toc" aria-label="Contents"><div class="toc-title"><strong>Contents</strong><button type="button" data-toggle-toc aria-expanded="true">hide</button></div><ol>' +
@@ -51,11 +76,16 @@ function entityV2TaskObjective(r,n) {
 }
 function entityV2Damage(d) {
   const f = d?.Formula || {}, x = f.Data || {}, p = number((x.Percent ?? 1) * 100) + '%';
-  const who = {Attacker:"attacker's", Target:"target's", Source:"source's", Self:"affected character's"}[d?.Character] || "character's";
-  if (bare(f.Type || '') === 'NormalDamage') return p + ' of ' + who + ' normal damage';
-  if (bare(f.Type || '') === 'MaxHit') return p + ' of ' + who + ' maximum hit';
-  if (bare(f.Type || '') === 'CurrentHitpoints') return p + ' of ' + who + ' current hitpoints';
-  return escape(human(f.Type || 'Damage'));
+  const who = {Attacker:"attacker's", Defender:"target's", Target:"target's", Source:"effect source's", Self:"affected character's"}[d?.Character] || "character's";
+  switch (bare(f.Type || '')) {
+    case 'NormalDamage': return p + ' of the ' + who + ' normal damage roll';
+    case 'MaxHit': return p + ' of the ' + who + ' maximum hit';
+    case 'CurrentHitpoints': return p + ' of the ' + who + ' current hitpoints';
+    case 'MaxHitpoints': return p + ' of the ' + who + ' maximum hitpoints';
+    case 'DamageDealt': return p + ' of the damage dealt by the triggering hit';
+    case 'Fixed': return number(x.Damage) + ' damage';
+    default: return escape(human(f.Type || 'Damage'));
+  }
 }
 function entityV2EffectNode(effect) {
   const id = effect?.Data?.Effect;
@@ -85,8 +115,10 @@ function entityV2Effect(effect, depth = 0) {
   return '<span class="entity-effect-name">' + icon(e) + '<strong>' + escape(e.name) + '</strong></span>' + (lines.length ? ': ' + lines.join('; ') : '');
 }
 function entityV2AppliedEffect(row, timing) {
-  const target = row.AppliesTo === 'Self' ? 'self' : row.AppliesTo === 'Target' ? 'target' : human(row.AppliesTo || 'Target');
-  return '<li>' + escape(timing) + ': ' + number((row.Chance ?? 1) * 100) + '% chance on ' + escape(target) + ' — ' + entityV2Effect(row.Effect) + '</li>';
+  const target = row.AppliesTo === 'Self' ? 'itself' : 'its target';
+  const chance = row.Chance ?? 1;
+  return '<li>' + escape(timing) + ': ' + (chance === 1 ? 'applies to ' : number(chance * 100) + '% chance to apply to ') +
+    target + ' — ' + entityV2Effect(row.Effect) + '</li>';
 }
 function entityV2Attack(a, chance) {
   const d = a.data;
@@ -195,8 +227,15 @@ function publicMonster(n) {
   const levelRows=(n.data.Levels || []).map(r=>[entityV2Named('Skill',r.Key),number(r.Value)]);
   sections.push({id:'combat',title:'Combat',body:'<div class="entity-combat-tables">'+table(['Statistic','Value'],stats)+ (levelRows.length ? table(['Skill','Level'],levelRows) : '') + '</div><p class="wiki-note">Base values before active effects, target defenses and the combat triangle. Damage reduction depends on power and protection ratings.</p>'});
   if(s.locations?.length)sections.push({id:'locations',title:'Locations',body:table(['Location','Requirements'],s.locations.map(l=>{const a=publicNode(l.type,l.id);return [entityV2Named(l.type,l.id),a?requirements(a):'—'];}),true)});
-  const normal=publicNode('Attack','MelvorBase:Normal'), normalChance=Math.max(0,1-attacks.reduce((v,a)=>v+(a.Chance || 0),0));
-  const attackBody=(normal && normalChance>0 ? entityV2Attack(normal,normalChance):'')+attacks.map(r=>{const a=publicNode('Attack',typeof r==='string'?r:r.Attack);return a?entityV2Attack(a,r.Chance??1):'';}).join('');
+  const normal=publicNode('Attack','MelvorBase:Normal');
+  const weights=new Map();
+  for(const row of attacks){
+    const id=typeof row==='string'?row:row.Attack, chance=row.Chance??1;
+    if(chance>0)weights.set(id,(weights.get(id)||0)+chance);
+  }
+  const total=[...weights.values()].reduce((sum,chance)=>sum+chance,0), normalChance=Math.max(0,1-total);
+  const attackBody=(normal&&normalChance>0?entityV2Attack(normal,normalChance):'')+
+    [...weights].map(([id,chance])=>{const attack=publicNode('Attack',id);return attack?entityV2Attack(attack,chance/Math.max(1,total)):'';}).join('');
   if(attackBody)sections.push({id:'attacks',title:'Attacks',body:attackBody});
   if(passives.length)sections.push({id:'passives',title:'Passives',body:passives.map(r=>{const p=publicNode('CombatPassive',typeof r==='string'?r:r.Passive);return p?entityV2Passive(p):'';}).join('')});
   const fixed=[...(drops.FixedItems || []),...(drops.FixedCurrencies || [])], tables=(drops.ItemTables || []).filter(t=>t.Table?.length);
