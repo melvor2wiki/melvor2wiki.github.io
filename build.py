@@ -147,6 +147,11 @@ for module in ['wiki-format','training-guides','entity-pages','skill-cleanup','t
     style.write_text(style.read_text(encoding='utf-8')+'\n'+(root/'overrides'/f'{module}.css').read_text(encoding='utf-8-sig'),encoding='utf-8')
 html=out/'index.html'
 html.write_text(html.read_text(encoding='utf-8').replace("connect-src 'none'",'connect-src https://ijmztvsjdzypvxnlicbf.supabase.co').replace('<strong>Melvor 2 Wiki</strong>','<strong>MELVOR 2</strong>'),encoding='utf-8')
+markup=html.read_text(encoding='utf-8')
+markup,count=re.subn(r'(<div class="sidebar-group"><h3>Tools</h3>).*?(<a href="https://db\.melvor\.aevv\.net/live"[^<]*</a>)(</div>)',
+    r'\1\2<a href="#/idle">Can I Idle?</a>\3', markup)
+assert count == 1, 'Unexpected sidebar tools markup'
+html.write_text(markup,encoding='utf-8')
 feedback=json.loads((root/'feedback-config.json').read_text(encoding='utf-8-sig'))
 assert re.fullmatch(r'https://ijmztvsjdzypvxnlicbf\.supabase\.co/functions/v1/submit-feedback',feedback['suggestionEndpoint']), 'Invalid public form endpoint'
 config={'issueRepository':os.environ.get('GITHUB_REPOSITORY','melvor2wiki/melvor2wiki.github.io'),**feedback}

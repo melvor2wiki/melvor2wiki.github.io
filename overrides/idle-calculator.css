@@ -9,3 +9,5 @@
 .idle-result { font-weight: 700; white-space: nowrap; }
 #idle-results tbody tr:has(.idle-fit) > td { background-color: #304b3d; }
 #idle-results tbody tr:has(.idle-exceeds, .idle-review) > td { background-color: #3b4046; }
+.idle-damage { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+.idle-damage .icon { width: 20px; height: 20px; }

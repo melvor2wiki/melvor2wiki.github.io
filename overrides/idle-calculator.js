@@ -184,7 +184,7 @@ function idleEvaluate(encounter, profile, hp = profile.hp) {
         let raw = hit.Damage.reduce((sum, row) => sum + roll(row, row.Character === 'Attacker' ? 'Enemy' : 'Player'), 0);
         if (e('FlatCriticalHitChance')) raw = Math.trunc(raw * (1.5 + e('FlatCriticalHitMultiplier')));
         const hitDamage = raw > 0 ? reduce(raw, true) : 0;
-        damage.push({value: hitDamage});
+        damage.push({value: hitDamage, style: stance.style});
         if (armour > 0 && hitDamage >= armour) canBreakArmour = true;
         maxDirect = Math.max(maxDirect, hitDamage);
       }
@@ -194,7 +194,7 @@ function idleEvaluate(encounter, profile, hp = profile.hp) {
       const owner = row?.Character === 'Target' ? 'Player' : source;
       const raw = Math.max(1, row ? roll(row, owner, maxDirect) : Math.ceil(maxDirect * effect.PercentDamageDealtPerProc)) * (effect.MaxStacks || 1);
       if (source === 'Player') unresolved.add('Player-sourced damage');
-      damage.push({value: reduce(raw, false)});
+      damage.push({value: reduce(raw, false), style: stance.style});
     }
   }
   // The game removes armour after an attack deals at least that much damage through it.
@@ -268,17 +268,28 @@ function idlePage(params) {
   const resultKey = ({result}) => result.unresolved.size ? 'review' : result.fits ? 'fit' : 'exceeds';
   const badge = (key, reasons = []) => '<span class="idle-result idle-' + key +
     (reasons.length ? '" title="' + escape(reasons.join('; ')) : '') + '">' + statuses[key] + '</span>';
-  const numeric = value => Number.isFinite(value) ? numericCell(value) : '—';
+  const damageCell = hit => {
+    if (!Number.isFinite(hit?.value)) return '—';
+    const src = imageSource(idleData().data('CombatStyle', hit.style)?.Icon);
+    const style = escape(hit.style || '');
+    const image = src ? '<img class="icon" src="' + src + '" alt="' + style + '" title="' + style + '">' : '';
+    return sortValue('<span class="idle-damage">' + image + number(hit.value) + '</span>', hit.value, true);
+  };
 
-  let urlTimer;
+  let urlTimer, lastProfile;
   function renderResults(updateUrl = false) {
+    const formData = new FormData(form);
+    const signature = new URLSearchParams(formData).toString();
+    const valid = form.checkValidity();
+    if (valid && signature === lastProfile) return;
+    lastProfile = valid ? signature : undefined;
     clearTimeout(urlTimer);
-    if (!form.checkValidity()) {
+    if (!valid) {
       threshold.textContent = 'Enter valid character stats to see the results.';
       results.innerHTML = '';
       return;
     }
-    const fields = Object.fromEntries(new FormData(form));
+    const fields = Object.fromEntries(formData);
     const profile = {
       hp: Number(fields.hp), threshold: idleClamp(tiers[Number(fields.tier)] + Number(fields.eat) / 100, .5),
       style: fields.style, protection: Number(fields.protection), armour: Number(fields.armour),
@@ -328,17 +339,20 @@ function idlePage(params) {
       }).filter(row => (!query || row.node.name.toLowerCase().includes(query) || row.rows.some(matches)) && (!status || row.key === status));
       if (ranked.length) summary = table([group === 'Slayer masters' ? 'Slayer master' : 'Location','Max damage/event','Result'],
         ranked.map(({node,rows,key}) => {
-          const values = rows.map(row => row.result.worst?.value).filter(Number.isFinite);
+          const worst = rows.reduce((max, row) => {
+            const hit = row.result.worst;
+            return hit && (!max || hit.value > max.value) ? hit : max;
+          }, null);
           const target = '<a class="row-link" href="' + escape(route('idle', {...urlParams, target: node.id})) +
             '">' + icon(node) + escape(node.name) + '</a>';
-          return [target, numeric(values.length ? Math.max(...values) : null), badge(key)];
+          return [target, damageCell(worst), badge(key)];
         }),true);
       detailRows = [...new Set(completed.flatMap(row => row.rows))];
     }
     detailRows = detailRows.filter(row => matches(row) && (!status || resultKey(row) === status));
     results.innerHTML = summary + '<h2>Monster results</h2>' + (detailRows.length
       ? table(['Monster','Location','Max damage/event','Result'], detailRows.map(row => [
-          link(row.node,true), row.area ? link(row.area,true) : '—', numeric(row.result.worst?.value),
+          link(row.node,true), row.area ? link(row.area,true) : '—', damageCell(row.result.worst),
           badge(resultKey(row), [...row.result.unresolved])
         ]), true)
       : '<p>No encounters match these filters.</p>');
