@@ -32,3 +32,11 @@ assert re.fullmatch(r'https://formsubmit\.co/ajax/[a-f0-9]{32}',feedback['sugges
 config={'issueRepository':os.environ.get('GITHUB_REPOSITORY','melvor2wiki/melvor2wiki.github.io'),**feedback}
 (out/'config.js').write_text('window.WIKI_CONFIG = '+json.dumps(config)+';\n',encoding='utf-8')
 print('Anonymous suggestion form configured; no email address or private key embedded')
+
+# Refresh only changed browser files after a deployment; keep the large data cache.
+html=out/'index.html'
+markup=html.read_text(encoding='utf-8')
+for filename in ['app.js','config.js','style.css']:
+    version=hashlib.sha256((out/filename).read_bytes()).hexdigest()[:12]
+    markup=markup.replace('"'+filename+'"','"'+filename+'?v='+version+'"')
+html.write_text(markup,encoding='utf-8')
