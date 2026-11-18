@@ -1,17 +1,19 @@
 # Melvor 2 Wiki
 
-Unofficial Melvor Idle 2 community wiki: items, creation recipes, sources, uses, skills, monsters and training guides.
+Unofficial Melvor Idle 2 community wiki: items, recipes, sources, uses, skills, monsters and training guides.
 
-Public suggestions: https://github.com/seriafrancesco/melvor2wiki/issues
+Target website: https://seriafrancesco.github.io/melvor2wiki/
 
-## Deployment
+Suggest an edit: https://github.com/seriafrancesco/melvor2wiki/issues
 
-Static release, hosted on Vercel Hobby. Run `python3 build.py` to reconstruct `public/`. The build validates the SHA-256 digest before extracting. It has no dependencies, downloads, API keys or application backend.
+## GitHub Pages
 
-The release is split into base64 text parts for transport through the connected GitHub API. To inspect the source, run the build: `public/app.js`, `public/style.css`, `public/data.js` and `public/index.html` contain the complete site. `release-manifest.json` records size and integrity.
+This site publishes through GitHub Actions. Pages must use **GitHub Actions** as its publishing source in the repository settings. The workflow runs `python3 build.py`, verifies the archived release digest, then uploads only `public/` to Pages. No API keys, personal saves, third-party scripts or application backend are required.
 
-All website resources load locally from the deployment. The CSP blocks network APIs and third-party scripts. Player Activity opens a separate external page. Suggest an edit opens a public GitHub issue draft that the visitor reviews and submits on GitHub. No save files, account tokens or private credentials are included. Do not post these in issues.
+## Inspect or run locally
 
-Game build: 26724394. Training guides include base action comparisons and selected-mechanic simulations; they are not a full account simulator or proof of globally optimal loadouts.
+Run `python3 build.py`, then `python3 -m http.server --directory public 8787`. The complete client source is in `public/app.js`, `public/style.css`, `public/data.js` and `public/index.html`.
+
+The release is split into base64 text parts for transfer through the GitHub connector. `release-manifest.json` records size and SHA-256 integrity. Training guides contain base action comparisons and selected-mechanic simulations; they are not a full account simulator or proof of globally optimal loadouts.
 
 Game names and artwork belong to their respective owners. This project is unaffiliated with the official Melvor wiki. PT Serif is provided under its included OFL license.
