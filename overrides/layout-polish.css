@@ -26,4 +26,12 @@ a:hover,a:focus-visible { color:#5bf; }
 .wiki-logo { padding:0 0 26px; margin:0; gap:0; }
 .wiki-logo img { width:120px; height:120px; object-fit:contain; }
 .wiki-logo strong { display:block; color:#fff; font-family:Arial,Helvetica,sans-serif; font-size:19px; font-weight:800; line-height:.95; text-transform:uppercase; letter-spacing:-.3px; max-width:150px; }
-.wiki-logo strong::after { content:'IDLE WIKI'; display:block; font-size:17px; font-weight:400; letter-spacing:0; margin-top:3px; }
+.wiki-logo strong::after { content:'WIKI'; display:block; font-size:17px; font-weight:400; letter-spacing:0; margin-top:3px; }
+
+/* Exact reference text colours; override older component-specific rules. */
+:root { --gold:#29d; --link:#29d; }
+a,a:visited,.row-link,.wiki-section a,.home-navigation a { color:#29d; }
+.buff,.bonus-line.buff,.text-success,.buff a,.text-success a { color:#3ec83e !important; }
+.debuff,.bonus-line.debuff,.text-danger,.debuff a,.text-danger a { color:#ff0000 !important; }
+.brand,.brand:visited,.brand:hover,.brand:focus-visible,.brand span { color:#fff !important; text-decoration:none !important; }
+.wiki-logo,.wiki-logo:hover,.wiki-logo:focus-visible { color:#fff; text-decoration:none !important; }
