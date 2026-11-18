@@ -145,9 +145,9 @@ function moneyStrategyName(entry) {
 function moneyOption(value,label,active) {
   return '<option value="'+escape(value)+'"'+(String(value)===String(active)?' selected':'')+'>'+escape(label)+'</option>';
 }
-function moneyRequirementCell(entry, level, combatSetup, combo) {
-  const inputs=combatSetup?(combatSetup.qty?[{qty:combatSetup.qty,path:combatSetup.food.path}]:[]):(combo?.cycle||moneySupply(entry,level))?.inputs||[];
-  return moneyRequiredSkills(entry,inputs,combatSetup,level,combo?.gear);
+function moneyRequirementCell(entry, level) {
+  const inputs=entry.group==='Combat'?[]:moneySupply(entry,level)?.inputs||[];
+  return moneyRequiredSkills(entry,inputs);
 }
 function moneyInputSaleRate(cycle) {
   const supplySeconds=cycle.seconds-cycle.actionSeconds;
@@ -172,12 +172,12 @@ function moneyIndex(params) {
     const rate=moneyCycleHourly(cycle);
     if(entry.group==='Thieving'){
       const loadout=moneyThievingLoadout(entry.n,level,moneyBoosts(entry.n,level));
-      return [{entry,rate:Math.max(rate,loadout.rate),combo:loadout.rate>rate?{gear:loadout.items}:null}];
+      return [{entry,rate:Math.max(rate,loadout.rate)}];
     }
     const combo=moneyCombination(entry,level);
     const best=combo?.rate>rate?combo:null;
     const hourly=best?.rate??rate,sellInputs=entry.group==='Crafting'?moneyInputSaleRate(cycle):null;
-    return hourly>0&&(sellInputs===null||hourly>=sellInputs)?[{entry,rate:hourly,combo:best}]:[];
+    return hourly>0&&(sellInputs===null||hourly>=sellInputs)?[{entry,rate:hourly}]:[];
   }).sort((a,b)=>b.rate-a.rate);
   const seen=new Map();
   const shortlist=rows.filter(({entry})=>{
@@ -198,10 +198,10 @@ function moneyIndex(params) {
   main.innerHTML='<h1>Money Making Guide</h1><p>Best repeatable routes at the selected level. Estimates include gathering, intermediate recipes and purchases used by the route. Shop sale prices are used throughout.</p>'+
     wikiSection('money-progression','Early to late game',table(['Level','Stage','Top base method','Base profit/hour'],checkpoints,true)+'<p>Checkpoints use unboosted rates at the displayed level in all skills.</p>')+
     wikiSection('money-ranking','Best methods by skill and level','<form id="money-filter"><label>Skill <select name="skill">'+moneyOption('All','All skills',selected)+skills.map(s=>moneyOption(s,s,selected)).join('')+'</select></label> <label>Level <select name="level">'+Array.from({length:99},(_,i)=>moneyOption(i+1,i+1,level)).join('')+'</select></label> <label>Find a strategy <input name="method" type="search" maxlength="80" value="'+escape(search)+'"></label> <button>Compare</button></form><p>Required skills cover the whole route. Open a strategy for quest, equipment and other unlocks. Routes with an unpriced recurring input are omitted.</p>'+
-      '<p>The table compares modeled combined setups for gathering, Thieving and leading crafting routes. Open a method for gear and rate assumptions.</p>'+
-      (shortlist.length?table(headers,shortlist.map(({entry,rate,combo})=>[moneyStrategyLink(entry,level),moneyRequirementCell(entry,level,null,combo),moneyAmount(rate)]),true):'<p>No profitable repeatable routes match these filters.</p>'))+
+      '<p>Estimated profit includes modeled boosters. Their unlocks appear in each strategy’s setup.</p>'+
+      (shortlist.length?table(headers,shortlist.map(({entry,rate})=>[moneyStrategyLink(entry,level),moneyRequirementCell(entry,level),moneyAmount(rate)]),true):'<p>No profitable repeatable routes match these filters.</p>'))+
     wikiSection('money-combat','Combat methods','<p>Best modeled melee setup per enemy at level '+number(level)+' Attack, Strength and Defence. Includes base respawn and time to replace food. Special effects, area modifiers and survivability need checking in the method guide.</p>'+
-      (shown.length?table(['Strategy','Required skills','Max estimated profit/hour'],shown.map(({entry,setup})=>[moneyStrategyLink(entry,level),moneyRequirementCell(entry,level,setup),moneyAmount(setup.rate)]),true):'<p>No combat method could be priced at this level.</p>'));
+      (shown.length?table(['Strategy','Required skills','Max estimated profit/hour'],shown.map(({entry,setup})=>[moneyStrategyLink(entry,level),moneyRequirementCell(entry,level),moneyAmount(setup.rate)]),true):'<p>No combat method could be priced at this level.</p>'));
   main.querySelector('#money-filter').addEventListener('submit',event=>{
     event.preventDefault();
     location.hash=route('money',Object.fromEntries(new FormData(event.currentTarget)));
@@ -209,11 +209,10 @@ function moneyIndex(params) {
 }
 function moneyMethod(entry,params) {
   const {n,group,skill}=entry, level=Math.max(entry.level||1,moneyRepairNumbers(params.get('level')));
-  let details='',setup='', combatSetup;
+  let details='',setup='';
   if(group==='Combat'){
     const c=moneyCombat(n), model=moneyCombatEstimate(entry,level);
     const baseline=model.best;
-    combatSetup=baseline;
     const seconds=Math.min(3600,Math.max(.1,Number(params.get('seconds'))||baseline?.seconds||1));
     const cost=Math.max(0,Math.min(1e9,params.has('cost')?Number(params.get('cost'))||0:baseline?.cost||0));
     const ready=baseline||params.has('seconds');
@@ -259,7 +258,7 @@ function moneyMethod(entry,params) {
     if(skill==='Mining')details+='<p>Uses the expected break time including prospecting. Extra finds are excluded.</p>';
   }
   main.innerHTML='<h1>'+escape(moneyStrategyName(entry))+'</h1><p>'+moneyNavLink()+' / '+link(n,true)+'</p>'+
-    wikiSection('money-access','Requirements','<h3>Required skills for the whole route</h3>'+ (entry.group==='Combat'&&!combatSetup?'':moneyRequirementCell(entry,level,combatSetup))+'<h3>Action and access</h3>'+moneyAccess(entry))+
+    wikiSection('money-access','Requirements','<h3>Required skills for the whole route</h3>'+moneyRequirementCell(entry,level)+'<h3>Action and access</h3>'+moneyAccess(entry))+
     wikiSection('money-estimate','Hourly estimate',details)+wikiSection('money-setup','Setup',setup);
   const form=main.querySelector('#money-combat-form,#money-method-level');
   if(form)form.addEventListener('submit',event=>{
