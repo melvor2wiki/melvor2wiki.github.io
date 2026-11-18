@@ -1,0 +1,5 @@
+.feedback-honeypot { position:absolute; left:-10000px; width:1px; height:1px; overflow:hidden; }
+.feedback-privacy { font-size:13px; max-width:48em; color:#c1cad5; }
+#suggest-status[data-state="success"] { color:#00c800; }
+#suggest-status[data-state="error"] { color:#ff9999; }
+#suggest-form button:disabled { opacity:.7; cursor:default; }

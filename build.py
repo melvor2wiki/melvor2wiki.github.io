@@ -1,5 +1,5 @@
 """Reconstruct the checked static release without network access or dependencies."""
-import base64,hashlib,io,json,zipfile
+import base64,hashlib,io,json,zipfile,os,re
 from pathlib import Path
 root=Path(__file__).resolve().parent
 manifest=json.loads((root/'release-manifest.json').read_text())
@@ -15,3 +15,20 @@ with zipfile.ZipFile(io.BytesIO(data)) as archive:
         target.parent.mkdir(parents=True,exist_ok=True)
         target.write_bytes(archive.read(entry))
 print('Verified static release:',len(parts),'parts')
+
+# Reader-facing form changes are maintained separately from the large game-data release.
+app_path=out/'app.js'
+app=app_path.read_text(encoding='utf-8')
+start=app.index('function publicSuggest(')
+end=app.index('function publicRoute(',start)
+app=app[:start]+(root/'overrides/public-suggest.js').read_text(encoding='utf-8-sig')+app[end:]
+app_path.write_text(app,encoding='utf-8')
+style=out/'style.css'
+style.write_text(style.read_text(encoding='utf-8')+'\n'+(root/'overrides/suggest.css').read_text(encoding='utf-8-sig'),encoding='utf-8')
+html=out/'index.html'
+html.write_text(html.read_text(encoding='utf-8').replace("connect-src 'none'",'connect-src https://formsubmit.co'),encoding='utf-8')
+feedback=json.loads((root/'feedback-config.json').read_text(encoding='utf-8-sig'))
+assert re.fullmatch(r'https://formsubmit\.co/ajax/[a-f0-9]{32}',feedback['suggestionEndpoint']), 'Invalid public form endpoint'
+config={'issueRepository':os.environ.get('GITHUB_REPOSITORY','melvor2wiki/melvor2wiki.github.io'),**feedback}
+(out/'config.js').write_text('window.WIKI_CONFIG = '+json.dumps(config)+';\n',encoding='utf-8')
+print('Anonymous suggestion form configured; no email address or private key embedded')
