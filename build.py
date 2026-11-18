@@ -64,9 +64,12 @@ for original, saved in [('link','formatV2OriginalLink'),('icon','formatV2Origina
 for module in ['wiki-format','training-guides','entity-pages','skill-cleanup','training-reader','layout-polish']:
     app+='\n'+(root/'overrides'/f'{module}.js').read_text(encoding='utf-8-sig')
 app+='\n'+(root/'overrides/money-guide.js').read_text(encoding='utf-8')
+app+='\n'+(root/'overrides/money-supply.js').read_text(encoding='utf-8-sig')
 guide_nav = """    '<a href="#/guides">Skill Training Guides</a>',\n"""
 assert app.count(guide_nav) == 1
 app = app.replace(guide_nav, guide_nav + '    moneyNavLink(),\n', 1)
+for character in '\u2013\u2014\u2019\u00d7\u00b7':
+    assert character.encode('utf-8').decode('cp1252') not in app, 'Corrupted text in app.js'
 app_path.write_text(app,encoding='utf-8')
 style=out/'style.css'
 style.write_text(style.read_text(encoding='utf-8')+'\n'+(root/'overrides/suggest.css').read_text(encoding='utf-8-sig'),encoding='utf-8')
