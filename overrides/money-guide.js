@@ -23,7 +23,7 @@ function moneyWeighted(rows,fortune=0) {
     return sum+units*moneyQuote(row.Item)*(row.Weight||0)/total;
   },0);
 }
-function moneyThieving(n,level,mods={}) {
+function thievingTiming(n,level,mods={}) {
   const d=n.data, v=k=>mods[k]||0, clamp=x=>Math.max(0,Math.min(1,x));
   const stealth=Math.max(0,Math.floor((level+v('FlatStealth'))*(1+v('PercentStealth'))));
   const perception=Math.max(0,Math.floor((d.Perception+v('FlatPerception'))*(1+v('PercentPerception'))));
@@ -34,6 +34,11 @@ function moneyThieving(n,level,mods={}) {
   for(let i=1;i<=stages;i++)progress[i]=1+(1-skip)*progress[i-1]+skip*progress[Math.max(0,i-2)];
   const wins=progress[stages], attempts=wins/chance;
   const seconds=attempts*(interval+(1-chance)*(1-clamp(v('StunAvoidanceChance')))*stun);
+  return {seconds,chance,attempts,wins,stealth,perception};
+}
+function moneyThieving(n,level,mods={}) {
+  const {seconds,chance,attempts,wins}=thievingTiming(n,level,mods);
+  const d=n.data, v=k=>mods[k]||0, clamp=x=>Math.max(0,Math.min(1,x));
   const fortune=v('FlatFortune')+(chance<1?v('FlatFortuneUnderSuccess'):0);
   const twice=1+clamp(v('DoublingChance'));
   const c=d.CurrencyReward;

@@ -37,19 +37,16 @@ function readerCandidates(id) {
   return payload.guides.skills[id]?.rankings||[];
 }
 function readerRate(r,lv,id) {
-  if(id==='Thieving'){
-    const n=guideV2Node(r),p=Math.min(1,(100+lv)/(100+n.data.Perception));
-    return r.xp*p/(Math.max(1,n.data.Stages)*(r.seconds+(1-p)*2));
-  }
+  if(id==='Thieving')return r.xp/thievingTiming(guideV2Node(r),lv).seconds;
   return guideV2Rate(r,lv,id);
 }
 function readerRanges(id) {
   const candidates=readerCandidates(id),ranges=[];
   for(let lv=1;lv<=99;lv++){
-    const pool=candidates.filter(r=>r.level<=lv);
+    const pool=candidates.filter(r=>r.level<=lv&&trainingEligible(guideV2Node(r),skill=>skill===id?lv:1));
     const rate=r=>readerRate(r,lv,id);
     const best=pool.reduce((a,b)=>!a||rate(b)>rate(a)?b:a,null),last=ranges.at(-1);
-    if(last?.action?.id===best?.id)last.to=lv;else ranges.push({from:lv,to:lv,action:best});
+    if(last&&last.action?.id===best?.id)last.to=lv;else ranges.push({from:lv,to:lv,action:best});
   }
   return ranges;
 }
@@ -74,11 +71,8 @@ function readerTraining(id) {
     return [guideV2RangeLabel(r),guideV2Link(a),numericCell(rate)];
   });
   let html='<p>'+readerText(readerNotes(id)[0])+'</p>'+table(['Level','Train on','Average XP/s'],rows,true);
-  if(id==='Cooking')html+='<p>Rates average every level in each row and include failed cooks. Ingredients are already in your bank.</p>';
-  else if(id==='Thieving')html+='<p>Rates average every level in each row and include failed attempts, all stages and the base 2-second stun. Food gathering and healing stops are extra.</p>';
-  else html+='<p>These are base rates, before equipment and bonuses.'+(ranges.some(r=>r.action?.ingredients?.Items?.length)?' Ingredients are already in your bank.':'')+'</p>';
-  const locks=ranges.filter(r=>r.action).map(r=>{const n=guideV2Node(r.action),extra=readerExtraRequirements(n,id);if(!extra)return null;const fallback=candidates.filter(a=>a.id!==r.action.id&&a.level<=r.from).sort((a,b)=>readerRate(b,r.from,id)-readerRate(a,r.from,id))[0];return [guideV2Link(r.action),extra,fallback?guideV2Link(fallback):'Keep your current action'];}).filter(Boolean);
-  if(locks.length)html+='<h3>Before you switch</h3>'+table(['Action','Also required','Use this until then'],locks,true);
+  if(id==='Cooking')html+='<p>This baseline uses other skills at level 1 and skips optional unlocks. Rates include failed cooks and assume ingredients are already in your bank.</p>';
+  else html+='<p>This baseline uses other skills at level 1 and skips optional unlocks. Use the planner for your account.'+(ranges.some(r=>r.action?.ingredients?.Items?.length)?' Ingredients are already in your bank.':'')+'</p>';
   return html;
 }
 function readerUnlockTraining(id) {
@@ -160,13 +154,13 @@ function readerBoosterRequirements(n) {
 }
 function readerBoostedRate(r,level,id,modifiers) {
   const n=guideV2Node(r),d=n.data,values={};
-  const relevant=/XP|Interval|MaxHealth|DoubleDamage|InstantCut|WeakSpot|SkipStep|Break|Shatter|Stealth|Perception|Stages|Proficiency|Success/i;
+  const relevant=/XP|Interval|MaxHealth|DoubleDamage|InstantCut|WeakSpot|SkipStep|Break|Shatter|Stealth|Perception|Stage|StunAvoidance|Proficiency|Success/i;
   for(const m of modifiers){
     let name=m.Stat?.Name||m.StatGroup;
     if(!relevant.test(name))continue;
     if(m.Condition||m.Scaling||m.FromContext)return null;
     const context=m.LocalContext||{};
-    let match=true;for(const [k,v]of Object.entries(context))if(k!=='Component'&&v){if(k==='Recipe'||k==='Constellation')match&&=v===r.id;else if(k==='Category')match&&=v===d.Category;else return null;}
+    let match=true;for(const [k,v]of Object.entries(context))if(k!=='Component'&&v){if(k==='Recipe'||k==='Constellation')match&&=v===r.id;else if(k==='Category'||k==='RecipeType')match&&=v===d[k];else return null;}
     if(!match)continue;
     name=({GlobalPercentXpGained:'PercentXPGained',GlobalPercentActionInterval:'PercentInterval',GlobalFlatActionInterval:'FlatInterval'})[name]||name;
     values[name]=(values[name]||0)+m.Value;
@@ -181,10 +175,7 @@ function readerBoostedRate(r,level,id,modifiers) {
     seconds=e[hp]*(d.BaseInterval*(1+v('PercentInterval'))+v('FlatInterval'))/1000;
   }else if(id==='Thieving'){
     ['FlatStealth','PercentStealth','FlatPerception','PercentPerception','FlatStages','SkipStageChance','StunAvoidanceChance','FlatStunInterval','PercentStunInterval'].forEach(x=>known.add(x));
-    const stealth=Math.max(0,Math.floor((level+v('FlatStealth'))*(1+v('PercentStealth')))),perception=Math.max(0,Math.floor((d.Perception+v('FlatPerception'))*(1+v('PercentPerception'))));
-    success=Math.min(1,(100+stealth)/(100+perception));const stages=Math.max(1,d.Stages+Math.trunc(v('FlatStages'))),e=[0],skip=clamp(v('SkipStageChance'));
-    for(let s=1;s<=stages;s++)e[s]=1+(1-skip)*e[s-1]+skip*e[Math.max(0,s-2)];
-    seconds=e[stages]*((d.BaseInterval+v('FlatInterval'))*(1+v('PercentInterval'))/1000+(1-success)*(1-clamp(v('StunAvoidanceChance')))*(2000+v('FlatStunInterval'))*(1+v('PercentStunInterval'))/1000)/success;success=1;
+    seconds=thievingTiming(n,level,values).seconds;success=1;
   }else if(id==='Herblore'){
     seconds=0;for(const phase of ['Preparing','Heating','Stirring','Bottling']){known.add('Flat'+phase+'Interval');known.add('Percent'+phase+'Interval');seconds+=(phase==='Bottling'?10:1)*(d['Base'+phase+'Interval']*(1+v('Percent'+phase+'Interval'))+v('Flat'+phase+'Interval'))/1000;}
     if(v('PercentInterval')||v('FlatInterval'))return null;
@@ -209,16 +200,16 @@ function readerRateExamples(id) {
   rows.sort((a,b)=>b.rate-a.rate||collator.compare(a.node.name,b.node.name));
   const chosen=[];for(const row of rows){const group=readerBoosterType(row.node);if(chosen.filter(r=>readerBoosterType(r.node)===group).length<3)chosen.push(row);}
   if(!chosen.length)return '';
-  return '<p>At level 99, the fastest unboosted action gives '+guideV2Num(base,' XP/s')+'. These are the largest calculated improvements in each source group, applied one source at a time. Meet its requirements before using it.</p>'+table(['Source','Effect','Train on','XP/s','Gain','Requirements'],chosen.map(r=>[readerBoosterName(r.node),r.effect,guideV2Link(r.action),guideV2Num(r.rate),guideV2Num((r.rate/base-1)*100,'%'),readerBoosterRequirements(r.node)]),true)+'<p>Each row tests one source on its own. Conditional effects, complete equipment sets and unsupported mechanics are listed below without a calculated XP/s.</p>';
+  return '<p>With all action requirements met, the highest modeled base rate at level 99 is '+guideV2Num(base,' XP/s')+'. These are the largest calculated improvements in each source group, applied one source at a time. Check the unlocks for the booster and the action before using a row.</p>'+table(['Source','Effect','Example action','XP/s','Gain','Requirements'],chosen.map(r=>[readerBoosterName(r.node),r.effect,guideV2Link(r.action),guideV2Num(r.rate),guideV2Num((r.rate/base-1)*100,'%'),readerBoosterRequirements(r.node)+'<br>'+guideV2Requirements(guideV2Node(r.action))]),true)+'<p>Each row tests one source on its own. Conditional effects, complete equipment sets and unsupported mechanics are listed below without a calculated XP/s.</p>';
 }
 function publicGuides(id) {
   if(!id){main.innerHTML='<h1>Skill Training Guides</h1>'+table(['Skill','Training guide'],(byType.get('Skill')||[]).map(s=>[link(s,true),'<a href="'+route('guide',{id:bare(s.id)})+'">'+escape(s.name)+'/Training</a>']),true);return;}
   id=bare(id);const skill=publicNode('Skill',id);if(!skill)return;
   const notes=readerNotes(id),rates=readerCandidates(id).length;
-  const comparison=rates?readerRateExamples(id):'';
-  const trainingTitle=rates?'Base XP benchmarks':'Training (1–99)';
+  const comparison=rates&&id!=='Thieving'?readerRateExamples(id):'';
+  const trainingTitle=id==='Thieving'?'Choosing a target':rates?'Base XP benchmarks':'Training (1–99)';
   const sections=[...(rates?[['fastest-route','Plan the fastest route']]:[]),['leveling',trainingTitle],...(comparison?[['comparison','Which upgrades help most?']]:[]),['setup-time','Is the setup worth it?'],['boosters','Boosters']];
-  main.innerHTML='<article class="training-guide-v2 reader-guide"><h1>'+escape(skill.name)+'/Training</h1><p class="guide-back">&lt; '+link(skill,true)+'</p><p class="guide-caption">For recipes, drops and unlocks, see '+link(skill,true)+'.</p>'+wikiContents(sections)+(rates?wikiSection('fastest-route','Plan the fastest route',trainingPlanSection(id)):'')+wikiSection('leveling',trainingTitle,readerTraining(id))+(comparison?wikiSection('comparison','Which upgrades help most?',comparison):'')+wikiSection('setup-time','Is the setup worth it?',trainingCompareSection())+wikiSection('boosters','Boosters','<p>'+readerText(notes[2])+'</p>'+readerBoosters(skill))+'<details class="guide-calculation"><summary>How the rates are calculated</summary>'+guideV2Method(id)+(id==='Thieving'?'<p>Success = min(1, (100 + level) / (100 + perception)). Expected cycle = stages × (action time + failure chance × stun time) / success chance.</p>':'')+'</details></article>';
+  main.innerHTML='<article class="training-guide-v2 reader-guide"><h1>'+escape(skill.name)+'/Training</h1><p class="guide-back">&lt; '+link(skill,true)+'</p><p class="guide-caption">For recipes, drops and unlocks, see '+link(skill,true)+'.</p>'+wikiContents(sections)+(rates?wikiSection('fastest-route','Plan the fastest route',trainingPlanSection(id)):'')+wikiSection('leveling',trainingTitle,id==='Thieving'?thievingTrainingNotes():readerTraining(id))+(comparison?wikiSection('comparison','Which upgrades help most?',comparison):'')+wikiSection('setup-time','Is the setup worth it?',trainingCompareSection())+wikiSection('boosters','Boosters','<p>'+readerText(notes[2])+'</p>'+readerBoosters(skill))+'<details class="guide-calculation"><summary>How the rates are calculated</summary>'+guideV2Method(id)+(id==='Thieving'?'<p>A successful attempt advances the stage. XP is awarded only when the target is completed. The planner counts failed attempts and stun time in every cycle.</p>':'')+'</details></article>';
   trainingStartPlanner(id);
   trainingStartComparison();
   const anchor=main.querySelector('.wiki-toc a[data-jump="boosters"]');

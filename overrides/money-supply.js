@@ -111,15 +111,21 @@ function moneySupply(entry,level) {
   return {gp:entry.gross*moneySuccess(entry,level),cash:(ingredients.Currencies||[]).reduce((sum,x)=>sum+x.Quantity,0)+inputs.reduce((sum,x)=>sum+x.qty*x.path.cash,0),
     seconds:entry.seconds+inputs.reduce((sum,x)=>sum+x.qty*x.path.seconds,0),actionSeconds:entry.seconds,inputs};
 }
+function thievingFood(n,timing,mods,model) {
+  const avoidance=Math.min(1,Math.max(0,mods.DamageAvoidanceChance||0));
+  const damage=timing.attempts*(1-timing.chance)*(1-avoidance)*(n.data.Damage+1)/2;
+  if(!damage)return {seconds:0,cash:0,inputs:[]};
+  const food=model().food;
+  if(!food)return null;
+  const qty=damage/food.healing;
+  return {seconds:qty*food.path.seconds,cash:qty*food.path.cash,inputs:[{qty,path:food.path}]};
+}
 function moneyThievingCycle(n,level,mods={},model) {
   const m=moneyThieving(n,level,mods);
-  const avoidance=Math.min(1,Math.max(0,mods.DamageAvoidanceChance||0));
-  const damage=m.attempts*(1-m.chance)*(1-avoidance)*(n.data.Damage+1)/2;
-  const food=damage>0?(model||moneySourceModel(level)).food:null;
-  if(damage>0&&!food)return null;
-  const qty=damage>0?damage/food.healing:0;
-  return {gp:m.gp,cash:qty?qty*food.path.cash:0,seconds:m.seconds+(qty?qty*food.path.seconds:0),
-    inputs:qty?[{qty,path:food.path}]:[],actionSeconds:m.seconds,earnings:{direct:m.wins*m.direct,loot:m.wins*m.items,completion:m.finish}};
+  const food=thievingFood(n,m,mods,()=>model||moneySourceModel(level));
+  if(!food)return null;
+  return {gp:m.gp,cash:food.cash,seconds:m.seconds+food.seconds,inputs:food.inputs,
+    actionSeconds:m.seconds,earnings:{direct:m.wins*m.direct,loot:m.wins*m.items,completion:m.finish}};
 }
 function moneyCycleHourly(cycle) {
   return cycle&&cycle.seconds>0?(cycle.gp-cycle.cash)*3600/cycle.seconds:0;
