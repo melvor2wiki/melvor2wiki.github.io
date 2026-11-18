@@ -1,4 +1,6 @@
-const idleClamp = (value, max) => Math.min(max, Math.max(0, value));
+function idleClamp(value, max) {
+  return Math.min(max, Math.max(0, value));
+}
 
 function idleData() {
   if (idleData.cached) return idleData.cached;
@@ -10,9 +12,10 @@ function idleData() {
   };
   const areas = [...(byType.get('CombatArea') || []), ...(byType.get('Dungeon') || [])].map(node => ({
     node,
-    category: node.type === 'Dungeon' ? 'Dungeons' : ({
-      SlayerZones: 'Slayer areas', DarkAreas: 'Dark areas', Quests: 'Quest encounters'
-    })[bare(node.data.Category)] || 'Combat areas',
+    category: ({
+      CombatAreas: 'Combat Areas', SlayerZones: 'Slayer Zones', DarkAreas: 'Dark Areas',
+      StandardDungeons: 'Standard Dungeons', Quests: 'Quest Encounters'
+    })[bare(node.data.Category)] || (node.type === 'Dungeon' ? 'Standard Dungeons' : 'Combat Areas'),
     enemies: [...new Set(node.type === 'Dungeon'
       ? node.data.Enemies.flatMap(wave => wave.Enemies.filter(slot => slot.Weight > 0).map(slot => slot.Enemy))
       : node.data.Enemies)]
@@ -212,8 +215,11 @@ function idlePage(params) {
   const tiers = idleAutoEatRates(), styles = ['Melee', 'Ranged', 'Magic'];
   const enemies = byType.get('Enemy') || [];
   const masters = byType.get('SlayerMaster') || [];
-  const all = 'All monsters';
-  const groups = [all, 'Combat areas', 'Slayer areas', 'Slayer masters', 'Dungeons', 'Dark areas', 'Quest encounters'];
+  const all = 'All Monsters', slayer = 'Slayer Masters';
+  const groups = ['Combat Areas', 'Slayer Zones', slayer, 'Dark Areas', 'Standard Dungeons', all, 'Quest Encounters'];
+  const legacyGroups = new Map([['slayer areas', 'Slayer Zones'], ['dungeons', 'Standard Dungeons']]);
+  const category = params.get('group')?.toLowerCase();
+  const group = groups.find(name => name.toLowerCase() === category) || legacyGroups.get(category) || '';
   const statuses = {'': 'Any result', fit: 'Can idle', exceeds: 'Above limit', review: 'Review needed'};
   const value = (key, fallback, min, max) => {
     const raw = params.get(key);
@@ -224,13 +230,12 @@ function idlePage(params) {
   const armour = Math.round(value('armour', 0, 0, 1000000)), resistance = value('resistance', 0, -100, 70);
   const vulnerability = value('damage', 0, 0, 1000);
   const style = styles.includes(params.get('style')) ? params.get('style') : 'Melee';
-  const group = groups.includes(params.get('group')) ? params.get('group') : all;
-  const status = Object.hasOwn(statuses, params.get('show')) ? params.get('show') : '';
+  const status = ['fit', 'exceeds', 'review'].includes(params.get('show')) ? params.get('show') : '';
   const query = (params.get('q') || '').trim().slice(0, 80);
-  const showAreas = group => areas.filter(area => area.category === group || group === all);
+  const locationsFor = group => areas.filter(area => !group || group === all || area.category === group);
   const locationOptions = (group, selected) => [
-    moneyOption('', group === all ? 'All locations' : 'All in category', selected),
-    ...(group === 'Slayer masters' ? masters : showAreas(group).map(area => area.node))
+    moneyOption('', 'All locations', selected),
+    ...(group === slayer ? masters : [...locationsFor(group).map(area => area.node), ...(!group ? masters : [])])
       .map(node => moneyOption(node.id, node.name, selected))
   ].join('');
   const numberField = (name, label, selectedValue, min, max, step = 1) => '<label>' + label +
@@ -248,17 +253,18 @@ function idlePage(params) {
     numberField('damage', 'Extra damage taken (%)', vulnerability, 0, 1000, .1) +
     '</div><p>Protection rating is handled separately from flat resistance.</p></details></fieldset>' +
     '<fieldset><legend>Encounters</legend><div class="idle-fields"><label>Category <select name="group">' +
-    groups.map(name => moneyOption(name, name, group)).join('') + '</select></label><label>Location or master <select name="target">' +
+    moneyOption('', 'Overview', group) + groups.map(name => moneyOption(name, name, group)).join('') + '</select></label><label>Location or master <select name="target">' +
     locationOptions(group, params.get('target') || '') + '</select></label><label>Find a monster or area <input type="search" name="q" maxlength="80" value="' + escape(query) +
     '"></label><label>Result <select name="show">' + Object.entries(statuses).map(([key, label]) => moneyOption(key, label, status)).join('') +
     '</select></label></div></fieldset></form>' +
-    '<p id="idle-threshold" aria-live="polite"></p><p>Each hit or damage tick is checked separately, allowing for armour breaking mid-fight. ' +
+    '<p id="idle-threshold" aria-live="polite">Calculating Auto Eat threshold…</p><p>Each hit or damage tick is checked separately, allowing for armour breaking mid-fight. ' +
     'The estimate assumes unlimited equipped food and uses the upper bound for harmful effects.</p>' +
-    '<p>Green means the setup is within the Auto Eat limit. Grey means above the limit or that the fight needs review.</p><div id="idle-results"></div>';
+    '<p>Green means the setup is within the Auto Eat limit. Grey means above the limit or that the fight needs review.</p><div id="idle-results"><p>Calculating encounters…</p></div>';
 
   const form = main.querySelector('#idle-profile');
   const results = main.querySelector('#idle-results');
   const threshold = main.querySelector('#idle-threshold');
+  const outline = document.getElementById('article-outline');
   const encounters = new Map();
   const locations = new Map();
   for (const area of areas) for (const id of area.enemies) {
@@ -278,8 +284,9 @@ function idlePage(params) {
 
   let urlTimer, lastProfile;
   function renderResults(updateUrl = false) {
-    const formData = new FormData(form);
-    const signature = new URLSearchParams(formData).toString();
+    const fields = Object.fromEntries(['hp', 'tier', 'style', 'eat', 'protection', 'armour', 'resistance', 'damage', 'group', 'target', 'show', 'q']
+      .map(name => [name, form.elements.namedItem(name).value]));
+    const signature = JSON.stringify(fields);
     const valid = form.checkValidity();
     if (valid && signature === lastProfile) return;
     lastProfile = valid ? signature : undefined;
@@ -287,9 +294,9 @@ function idlePage(params) {
     if (!valid) {
       threshold.textContent = 'Enter valid character stats to see the results.';
       results.innerHTML = '';
+      if (outline) outline.innerHTML = '';
       return;
     }
-    const fields = Object.fromEntries(formData);
     const profile = {
       hp: Number(fields.hp), threshold: idleClamp(tiers[Number(fields.tier)] + Number(fields.eat) / 100, .5),
       style: fields.style, protection: Number(fields.protection), armour: Number(fields.armour),
@@ -316,62 +323,98 @@ function idlePage(params) {
       return seen.get(key);
     };
     const matches = ({node, area}) => !query || [node.name, area?.name].some(name => name?.toLowerCase().includes(query));
-    let detailRows = [], summary = '';
-    if (group === all && !selected) {
-      // A monster found in several places uses its most restrictive location.
-      const risk = row => row.result.unresolved.size ? Infinity : row.result.worst?.value ?? Infinity;
-      detailRows = enemies.map(node => {
-        const rows = (locations.get(node.id) || [null]).map(area => check(node, area));
-        const matching = rows.filter(matches);
-        return matching.sort((a,b) => risk(b) - risk(a))[0];
-      }).filter(Boolean);
-    } else {
-      const collections = group === 'Slayer masters'
-        ? masters.filter(node => !selected || node.id === selected).map(node => ({node, areas: areas.filter(a => node.data.Areas.includes(a.node.id))}))
-        : showAreas(group).filter(a => !selected || a.node.id === selected).map(a => ({node: a.node, areas: [a]}));
-      const completed = collections.map(collection => ({
-        node: collection.node,
-        rows: collection.areas.flatMap(({node, enemies: ids}) => ids.map(id => publicNode('Enemy', id)).filter(Boolean).map(enemy => check(enemy, node)))
-      })).filter(row => row.rows.length);
-      const ranked = completed.map(({node,rows}) => {
+    const visible = row => !status || resultKey(row) === status;
+    const empty = '<p>No encounters match these filters.</p>';
+    const sectionId = name => 'idle-' + name.toLowerCase().replaceAll(' ', '-');
+    const monsterTable = rows => rows.length ? table(['Monster','Location','Max damage/event','Result'], rows.map(row => [
+      link(row.node,true), row.area ? link(row.area,true) : '—', damageCell(row.result.worst),
+      badge(resultKey(row), [...row.result.unresolved])
+    ]), true) : empty;
+    const areaRows = area => area.enemies.map(id => publicNode('Enemy',id)).filter(Boolean).map(node => check(node,area.node));
+    function renderCategory(name) {
+      if (name === all) {
+        // A monster found in several places uses its most restrictive matching location.
+        const risk = row => row.result.unresolved.size ? Infinity : row.result.worst?.value ?? Infinity;
+        const rows = enemies.map(node => {
+          const areas = locations.get(node.id) || [null];
+          return areas.filter(area => !selected || area?.id === selected).map(area => check(node,area))
+            .filter(matches).reduce((worst,row) => !worst || risk(row)>risk(worst) ? row : worst,null);
+        }).filter(row => row && visible(row));
+        return wikiSection(sectionId(name),name,monsterTable(rows));
+      }
+      const categoryAreas = locationsFor(name);
+      const collections = name === slayer
+        ? masters.map(node => ({node, areas: areas.filter(area => node.data.Areas.includes(area.node.id))}))
+        : categoryAreas.map(area => ({node: area.node,areas:[area]}));
+      const ranked = collections.filter(({node}) => !selected || node.id === selected).map(({node,areas}) => {
+        const rows = areas.flatMap(areaRows);
         const keys = rows.map(resultKey);
-        return {node, rows, key: keys.includes('exceeds') ? 'exceeds' : keys.includes('review') ? 'review' : 'fit'};
-      }).filter(row => (!query || row.node.name.toLowerCase().includes(query) || row.rows.some(matches)) && (!status || row.key === status));
-      if (ranked.length) summary = table([group === 'Slayer masters' ? 'Slayer master' : 'Location','Max damage/event','Result'],
-        ranked.map(({node,rows,key}) => {
-          const worst = rows.reduce((max, row) => {
+        const key = keys.includes('exceeds') ? 'exceeds' : keys.includes('review') ? 'review' : 'fit';
+        const nameMatches = Boolean(query && node.name.toLowerCase().includes(query));
+        return {node, rows, key, nameMatches};
+      }).filter(row => row.rows.length && (!query || row.nameMatches || row.rows.some(matches)));
+      const summaries = ranked.filter(row => !status || row.key === status);
+      const summary = summaries.length ? table([name === slayer ? 'Slayer Master' : 'Location','Max damage/event','Result'],
+        summaries.map(({node, rows, key}) => {
+          const worst = rows.reduce((max,row) => {
             const hit = row.result.worst;
             return hit && (!max || hit.value > max.value) ? hit : max;
-          }, null);
-          const target = '<a class="row-link" href="' + escape(route('idle', {...urlParams, target: node.id})) +
+          },null);
+          const target = '<a class="row-link" href="' + escape(route('idle', {...urlParams, group: name, target: node.id})) +
             '">' + icon(node) + escape(node.name) + '</a>';
-          return [target, damageCell(worst), badge(key)];
-        }),true);
-      detailRows = [...new Set(completed.flatMap(row => row.rows))];
+          return [target,damageCell(worst),badge(key)];
+        }),true) : empty;
+      const details = group && (selected || ranked.length) ? '<h3>Monster results</h3>' + monsterTable(
+        [...new Set(ranked.flatMap(row => row.rows.filter(monster => (row.nameMatches || matches(monster)) && visible(monster))))]
+      ) : '';
+      return wikiSection(sectionId(name),name,summary+details);
     }
-    detailRows = detailRows.filter(row => matches(row) && (!status || resultKey(row) === status));
-    results.innerHTML = summary + '<h2>Monster results</h2>' + (detailRows.length
-      ? table(['Monster','Location','Max damage/event','Result'], detailRows.map(row => [
-          link(row.node,true), row.area ? link(row.area,true) : '—', damageCell(row.result.worst),
-          badge(resultKey(row), [...row.result.unresolved])
-        ]), true)
-      : '<p>No encounters match these filters.</p>');
+    const activeGroups = group ? [group] : groups;
+    results.innerHTML = activeGroups.map(renderCategory).join('');
+    if (outline) outline.innerHTML = '<h3>On This Page</h3>' + activeGroups.map(name => {
+      const id = sectionId(name);
+      return '<a href="#' + id + '" data-outline="' + id + '">' + escape(name) + '</a>';
+    }).join('');
   }
 
   let frame, activeGroup = group;
-  function refresh() {
-    if (form.elements.group.value !== activeGroup) {
-      activeGroup = form.elements.group.value;
-      form.elements.target.innerHTML = locationOptions(activeGroup, '');
+  const groupInput = form.elements.namedItem('group');
+  const targetInput = form.elements.namedItem('target');
+  function syncLocation() {
+    if (groupInput.value === activeGroup) return;
+    activeGroup = groupInput.value;
+    targetInput.innerHTML = locationOptions(activeGroup, '');
+  }
+  function selectLocation() {
+    if (groupInput.value || !targetInput.value) return;
+    const id = targetInput.value;
+    groupInput.value = areas.find(area => area.node.id === id)?.category || slayer;
+    activeGroup = groupInput.value;
+    targetInput.innerHTML = locationOptions(activeGroup,id);
+  }
+  function update(updateUrl) {
+    try {
+      renderResults(updateUrl);
+    } catch (error) {
+      lastProfile = undefined;
+      threshold.textContent = 'Could not calculate encounters.';
+      results.innerHTML = '<p>Change a stat or filter to try the calculation again.</p>';
+      if (outline) outline.innerHTML = '';
+      console.error(error);
     }
+  }
+  function refresh(event) {
+    if (event.target === targetInput) selectLocation();
+    syncLocation();
     if (frame) return;
     frame = requestAnimationFrame(() => {
       frame = null;
-      if (form.isConnected) renderResults(true);
+      if (form.isConnected) update(true);
     });
   }
   form.addEventListener('input', refresh);
   form.addEventListener('change', refresh);
   form.addEventListener('submit', event => event.preventDefault());
-  renderResults();
+  selectLocation();
+  update(false);
 }
