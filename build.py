@@ -23,7 +23,7 @@ start=app.index('function publicSuggest(')
 end=app.index('function publicRoute(',start)
 app=app[:start]+(root/'overrides/public-suggest.js').read_text(encoding='utf-8-sig')+app[end:]
 # Keep shared primitives available to the focused reader-facing overrides.
-for original, saved in [('link','formatV2OriginalLink'),('table','formatV2OriginalTable'),('itemEntry','formatV2OriginalItemEntry'),
+for original, saved in [('link','formatV2OriginalLink'),('icon','formatV2OriginalIcon'),('table','formatV2OriginalTable'),('itemEntry','formatV2OriginalItemEntry'),
                         ('wikiTaskCondition','formatV2OriginalTaskCondition'),
                         ('publicFinishPage','formatV2OriginalFinishPage')]:
     marker='function '+original+'('

@@ -15,6 +15,10 @@ function link(node, withIcon = false) {
   }
   return formatV2OriginalLink(node, withIcon);
 }
+function icon(node) {
+  if (node.type !== 'ShopPurchase' && (!node.image || /missing_artwork|placeholder/i.test(node.image)) && !node.data.CoverBackground) return '';
+  return formatV2OriginalIcon(node);
+}
 function itemEntry(value, source, withChance = false) {
   if (bare(value?.Currency) === 'GoldPieces') {
     const currency = publicNode('Currency', value.Currency), min = value.Quantity ?? value.MinQuantity, max = value.MaxQuantity ?? min;
@@ -33,10 +37,11 @@ function table(headers, rows, sortable = false) {
   const prepared = rows.map(row => row.map((cell, i) => {
     const obj = cell && typeof cell === 'object';
     let html = String(obj ? cell.html : cell ?? '—');
+    const percentValue = /^\d[\d,.]*%$/.test(html.trim()) ? Number(html.replace(/[, %]/g, '')) / 100 : null;
     html = formatV2Percent(html);
     if (/^Chance(?: \(%\))?$/.test(names[i])) {
       html = html.replace(/(?<![\w"=])([\d,]+)\/([\d,]+)(?![\w])/g, (_, a, b) => publicFraction(Number(a.replace(/,/g, '')) / Number(b.replace(/,/g, ''))));
-      if (names[i] === 'Chance' && /^\d[\d,.]*%$/.test(html.trim())) html = publicChanceDisplay(Number(html.replace(/[, %]/g, '')) / 100);
+      if (names[i] === 'Chance' && percentValue != null) html = publicChanceDisplay(percentValue);
     }
     return obj ? {...cell, html} : html;
   }));
