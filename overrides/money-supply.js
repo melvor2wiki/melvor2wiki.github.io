@@ -28,12 +28,15 @@ function moneyRecurringInputs(node) {
 function moneySuccess(entry,level) {
   return entry.skill==='Cooking'?Math.min(1,(69+level)/(69+entry.n.data.Difficulty)):1;
 }
-function moneySourceModel(level) {
+function moneySourceModel(level, trainingSkill, trainingLevel, unlocked) {
   moneySourceModel.cache ||=new Map();
-  if(moneySourceModel.cache.has(level))return moneySourceModel.cache.get(level);
+  const key=trainingSkill ? [level, trainingSkill, trainingLevel, Boolean(unlocked)].join('/') : level;
+  if(moneySourceModel.cache.has(key))return moneySourceModel.cache.get(key);
+  const levelFor=skill=>skill===trainingSkill ? trainingLevel : level;
+  const eligible=node=>trainingSkill ? trainingEligible(node,levelFor,unlocked) : moneyEligible(node,level);
   const recipes=[];
   for(const entry of moneyRows()){
-    if(!['Gathering','Crafting'].includes(entry.group)||!moneyEligible(entry.n,level))continue;
+    if(!['Gathering','Crafting'].includes(entry.group)||!eligible(entry.n)||(trainingSkill&&entry.level>levelFor(entry.skill)))continue;
     const d=entry.n.data;
     const input=d.Ingredients||{},items=moneyRecurringInputs(entry.n);
     if(!items)continue;
@@ -41,25 +44,30 @@ function moneySourceModel(level) {
       Item:x.Item,Quantity:moneyAverage(x)*x.Weight/d.RandomProducts.reduce((sum,y)=>sum+y.Weight,0)*(d.FishChance??d.BaseFishChance??0)
     })):d.Products||(d.Product?[d.Product]:[]);
     recipes.push({node:entry.n,entry,time:entry.seconds,items,cash:(input.Currencies||[]).reduce((sum,x)=>sum+x.Quantity,0),
-      outputs:outputs.map(x=>({id:x.Item,qty:(x.Quantity??1)*(x.Chance??1)*moneySuccess(entry,level)}))});
+      outputs:outputs.map(x=>({id:x.Item,qty:(x.Quantity??1)*(x.Chance??1)*moneySuccess(entry,levelFor(entry.skill))}))});
   }
   for(const n of byType.get('ShopPurchase')||[]){
     const d=n.data,c=d.Costs;
-    if(!d.AllowBulkPurchase||d.DefaultBuyLimit!==0||!moneyEligible(n,level)||!c||c.Currencies?.some(x=>bare(x.Currency)!=='GoldPieces'))continue;
+    if(!d.AllowBulkPurchase||d.DefaultBuyLimit!==0||!eligible(n)||!c||c.Currencies?.some(x=>bare(x.Currency)!=='GoldPieces'))continue;
     const items=c.Items||[],cash=(c.Currencies||[]).reduce((sum,x)=>sum+x.Quantity,0);
     if(!items.length&&!cash)continue;
     recipes.push({node:n,time:0,items,cash,outputs:(d.Provides?.Items||[]).map(x=>({id:x.Item,qty:x.Quantity}))});
   }
   for(const n of byType.get('Item')||[]){
     const open=n.data.Capabilities?.['MelvorBase:Openable'];
-    if(!open||!moneyEligible(n,level))continue;
+    if(!open||!eligible(n))continue;
     const outputs=(open.AlwaysDrops||[]).filter(x=>x.Item).map(x=>({id:x.Item,qty:moneyAverage(x)}));
     const drops=open.DropTable||[],sum=drops.reduce((total,x)=>total+(x.Weight||0),0);
     if(sum>0)for(const drop of drops)outputs.push({id:drop.Item,qty:moneyAverage(drop)*drop.Weight/sum});
     if(outputs.length)recipes.push({node:n,time:0,items:[{Item:n.id,Quantity:1}],cash:0,outputs});
   }
   // Minimize production time plus time needed to replace GP at the best base gathering rate.
-  const baseline=Math.max(1/3600,...moneyRows().filter(e=>e.group==='Gathering'&&moneyEligible(e.n,level)&&moneyRecurringInputs(e.n)).map(e=>e.gross/e.seconds));
+  const gpPerSecond=Math.max(0,...moneyRows().filter(e=>{
+    if(e.group!=='Gathering'||!eligible(e.n))return false;
+    const inputs=moneyRecurringInputs(e.n);
+    return inputs && (!trainingSkill || (inputs.length===0 && e.level<=levelFor(e.skill)));
+  }).map(e=>e.gross/e.seconds));
+  const baseline=Math.max(1/3600,gpPerSecond);
   const paths=new Map(), score=p=>p.seconds+p.cash/baseline;
   for(let pass=0;pass<24;pass++){
     let changed=false;
@@ -83,8 +91,12 @@ function moneySourceModel(level) {
     const healing=publicNode('Item',x.id).data.Capabilities['MelvorBase:Food'].BaseHealing;
     return {path:x,healing};
   }).sort((a,b)=>score(a.path)/a.healing-score(b.path)/b.healing)[0];
-  const result={paths,food};
-  moneySourceModel.cache.set(level,result);
+  const result={paths,food,gpPerSecond};
+  if (trainingSkill) {
+    const trainingKeys = [...moneySourceModel.cache.keys()].filter(key => typeof key === 'string');
+    if (trainingKeys.length >= 150) moneySourceModel.cache.delete(trainingKeys[0]);
+  }
+  moneySourceModel.cache.set(key,result);
   return result;
 }
 function moneySupply(entry,level) {
@@ -99,11 +111,11 @@ function moneySupply(entry,level) {
   return {gp:entry.gross*moneySuccess(entry,level),cash:(ingredients.Currencies||[]).reduce((sum,x)=>sum+x.Quantity,0)+inputs.reduce((sum,x)=>sum+x.qty*x.path.cash,0),
     seconds:entry.seconds+inputs.reduce((sum,x)=>sum+x.qty*x.path.seconds,0),actionSeconds:entry.seconds,inputs};
 }
-function moneyThievingCycle(n,level,mods={}) {
+function moneyThievingCycle(n,level,mods={},model) {
   const m=moneyThieving(n,level,mods);
   const avoidance=Math.min(1,Math.max(0,mods.DamageAvoidanceChance||0));
   const damage=m.attempts*(1-m.chance)*(1-avoidance)*(n.data.Damage+1)/2;
-  const food=moneySourceModel(level).food;
+  const food=damage>0?(model||moneySourceModel(level)).food:null;
   if(damage>0&&!food)return null;
   const qty=damage>0?damage/food.healing:0;
   return {gp:m.gp,cash:qty?qty*food.path.cash:0,seconds:m.seconds+(qty?qty*food.path.seconds:0),

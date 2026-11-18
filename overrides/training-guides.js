@@ -10,7 +10,7 @@ function guideV2Node(r) {return r?publicNode(r.type,r.id):null;}
 function guideV2Link(r) {const n=guideV2Node(r);return n?link(n,true):escape(r?.name||'—');}
 function guideV2Html(cell) {return cell&&typeof cell==='object'&&'html' in cell?cell.html:String(cell??'');}
 function guideV2Num(v,suffix) {return Number.isFinite(v)?guideV2Html(numericCell(v,suffix||'',3)):'<span class="guide-unavailable">Not available</span>';}
-function guideV2Quantity(xs) {return (xs||[]).map(x=>{const n=publicNode(x.Currency?'Currency':'Item',x.Item||x.Currency);return (n?link(n,true):escape(human(x.Item||x.Currency)))+' ×'+number(x.Quantity||1);}).join('<br>')||'None';}
+function guideV2Quantity(xs) {return (xs||[]).map(x=>{const n=publicNode(x.Currency?'Currency':'Item',x.Item||x.Currency);return (n?link(n,true):escape(human(x.Item||x.Currency)))+(x.Quantity>1?' ×'+number(x.Quantity):'');}).join('<br>')||'None';}
 function guideV2Effect(n) {
   const d=n.data,b=d.Bonuses||d.Capabilities?.['MelvorBase:Toolbelt']?.Bonuses||d.Capabilities?.['MelvorBase:Equipment']?.Bonuses||d.Provides?.Bonuses;
   return b?wikiAllBonusText(b,n):'See item stats and equipment requirements.';

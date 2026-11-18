@@ -4,7 +4,7 @@ function readerNotes(id) {
     Woodcutting:['Cut the fastest tree you can access, then move on when the next one beats it.','Keep a supply of logs for [Skill:Firemaking] and [Skill:Fletching]. Extra logs are useful, but they do not award extra Woodcutting XP.','Double damage, weak spots and instant cuts shorten a cut. Compare those bonuses as well as XP and swing speed.'],
     Mining:['Train on the rock with the best break XP for the time it takes to mine.','Save ore for [Skill:Smithing] before selling the rest. Prospecting makes long dry streaks less costly than the first-hit chance suggests.','Break chance and shatter bonuses can matter more than a small XP bonus.'],
     Fishing:['Use the quickest XP spot until you need a particular fish for another skill.','Bank the fish you will cook in [Skill:Cooking]. If you are gathering food rather than rushing levels, choose the catch you need.','Shorter fishing intervals speed up training; extra catches mainly improve your food supply.'],
-    Cooking:['With ingredients banked, switch from fish to [CookingRecipe:BeefSandwich] at level 15. Keep cooking fish if you cannot yet supply the sandwich ingredients.','If your bank is empty, check the gathering route below before choosing what to cook. Keep useful food for combat.','Success chance matters most while your proficiency is low. The table includes failed cooks.'],
+    Cooking:['Cooking can be quick when your bank is stocked. Compare the time to catch or gather the ingredients before switching to a new recipe.','If your bank is empty, check the gathering route below before choosing what to cook. Keep useful food for combat.','Success chance matters most while your proficiency is low. The table includes failed cooks.'],
     Herblore:['Brew in batches and keep the potions you will actually use.','Gather the herbs and secondary ingredients before starting. A short brew is only fast overall if its ingredients are easy to replace.','Check which brewing phase a tool improves: preparing, heating, stirring or bottling.'],
     Firemaking:['Burn the best XP fuel you can replace without spending longer gathering it.','Keep logs needed for [Skill:Fletching] before burning your whole bank. Use the gathering route when you need to cut the fuel yourself.','A shorter burn and more XP both help. Extra products improve the return, not the XP from that burn.'],
     Smithing:['Smelt or smith the fastest recipe your ore supply can support.','Keep bars for your next equipment upgrade. Use the supply route below if you are starting with an empty bank.','Step skipping helps long recipes; XP and interval bonuses help every recipe they apply to.'],
@@ -13,7 +13,7 @@ function readerNotes(id) {
     Runecrafting:['Train on the fastest affordable recipe, while banking runes you will need for [Skill:Magic].','If your essence supply is limited, look at XP per ingredient as well as XP/s.','Resource preservation stretches your bank; action time and XP bonuses make the training itself faster.'],
     Beastcrafting:['Use a repeatable recipe you can keep supplied, and save useful equipment.','Check the full ingredient list before changing recipes. Gathering a rare component can erase the gain from a faster craft.','Compare XP, action time and step skipping before spending materials on an upgrade.'],
     Astrology:['Study the best XP constellation you have unlocked. Change earlier if another constellation has a bonus you need now.','Unlock useful nodes for the skill you plan to train next. Their long-term benefit can be worth more than a small Astrology XP lead.','Study speed and XP help training directly. Event and knowledge bonuses serve different goals.'],
-    Thieving:['Stay on [ThievingRecipe:Thug] from level 5 until level 60 for base XP. Higher-level targets can lose their lead once failed attempts and stuns are counted.','Bring enough food for the session. If damage forces you to stop, use an easier target even when its listed XP/s is lower.','Stealth improves success until it reaches 100%. After that, more stealth does not speed up that target.'],
+    Thieving:['Higher-level targets can be slower once you count failed attempts, stuns and food. Compare the whole cycle before switching.','Bring enough food for the session. If damage forces you to stop, use an easier target even when its listed XP/s is lower.','Stealth improves success until it reaches 100%. After that, more stealth does not speed up that target.'],
     Hunting:['Choose an animal for the materials you need, then shorten the slower part of its hunt.','Use its matching tool and trap. Add the preferred bait when you can replace it cheaply.','A faster trap does little if most of the hunt is spent tracking. Improve the phase that takes longest.'],
     Farming:['Keep every unlocked plot growing. Pick crops by both XP and the supplies your other skills need.','Reserve seeds for the next planting. Grow herbs for [Skill:Herblore] and food or feed alongside your XP crops.','Plots work in parallel. Treat the crop table as a per-harvest comparison, not a single active-action XP/s ranking.'],
     Ranching:['Start with animals you can keep fed, then fill more space as your supply grows.','Keep enough produce for feed and treats before selling the surplus. A larger herd is useful only if you can maintain it.','Compare maturity, production time and upkeep together; the purchase price alone does not tell you the best animal.'],
@@ -43,11 +43,11 @@ function readerRate(r,lv,id) {
   }
   return guideV2Rate(r,lv,id);
 }
-function readerRanges(id,supplies=false) {
+function readerRanges(id) {
   const candidates=readerCandidates(id),ranges=[];
   for(let lv=1;lv<=99;lv++){
-    const pool=candidates.filter(r=>r.level<=lv&&(!supplies||r.acquisition?.status==='complete within restricted model'));
-    const rate=r=>supplies?r.xp*(id==='Cooking'?Math.min(1,(69+lv)/(69+guideV2Node(r).data.Difficulty)):r.successChance)/(r.acquisition.cycleSecondsIncludingInputs):readerRate(r,lv,id);
+    const pool=candidates.filter(r=>r.level<=lv);
+    const rate=r=>readerRate(r,lv,id);
     const best=pool.reduce((a,b)=>!a||rate(b)>rate(a)?b:a,null),last=ranges.at(-1);
     if(last?.action?.id===best?.id)last.to=lv;else ranges.push({from:lv,to:lv,action:best});
   }
@@ -97,15 +97,7 @@ function readerCombatTraining(id) {
   const g=payload.guides.skills[id],stances=(g.stances||[]).map(s=>'<strong>'+escape(s.name)+'</strong>: '+s.experienceGain.filter(x=>bare(x.Component.Entity)===id).map(x=>guideV2Num(x.ExperiencePerDamage,' XP per damage')).join(', ')).join('<br>');
   const gearSkill=['Strength','Hitpoints'].includes(id)?'Attack':id,skill=publicNode('Skill',gearSkill),equipment=wikiEquipmentUnlocks(skill).filter(n=>guideV2Level(n,gearSkill)<=99).sort((a,b)=>guideV2Level(a,gearSkill)-guideV2Level(b,gearSkill));
   const levels=[...new Set([1,...equipment.map(n=>guideV2Level(n,gearSkill))])].sort((a,b)=>a-b),rows=levels.map((lv,i)=>[lv+'–'+(levels[i+1]?levels[i+1]-1:99),equipment.filter(n=>guideV2Level(n,gearSkill)===lv).map(n=>link(n,true)).join('<br>')||'Keep your current equipment']);
-  return '<p>'+readerText(readerNotes(id)[0])+'</p><p>'+readerText(readerNotes(id)[1])+'</p><h3>Choose your XP stance</h3><p>'+stances+'</p><h3>'+(id==='Hitpoints'?'Melee equipment checkpoints':'Equipment checkpoints')+'</h3>'+table([gearSkill+' level','New equipment'],rows,true)+'<p>These are equipment unlocks, not fixed target changes. Combat XP/s depends on your weapon, accuracy, enemy and food stops.</p>';
-}
-function readerSupplyRoute(id) {
-  const rs=readerRanges(id,true).filter(r=>r.action);if(!rs.length)return '';
-  return '<p>Starting from an empty bank? These choices include gathering the ingredients and assume you have unlocked every source listed at right.</p>'+table(['Level','Make','XP/s with gathering','Gather from'],rs.map(r=>{
-    const a=r.action,rate=readerAverageRate(r,level=>a.xp*(id==='Cooking'?Math.min(1,(69+level)/(69+guideV2Node(a).data.Difficulty)):a.successChance)/a.acquisition.cycleSecondsIncludingInputs);
-    const refs=[...new Set(a.acquisition.items.flatMap(i=>i.sourceIds||[]))].map(id=>(byId.get(id)||[]).find(n=>actionTypes.has(n.type))).filter(Boolean);
-    return [guideV2RangeLabel(r),guideV2Link(a),guideV2Num(rate),refs.map(n=>link(n,true)).join('<br>')];
-  }),true)+'<p>Only fully resolved gathering and crafting chains are included. Shop purchases, combat drops and passive farming are outside this comparison.</p>';
+  return '<p>'+readerText(readerNotes(id)[0])+'</p><p>'+readerText(readerNotes(id)[1])+'</p><h3>Choose your XP stance</h3><p>'+stances+'</p><h3>'+(id==='Hitpoints'?'Melee equipment checkpoints':'Equipment checkpoints')+'</h3>'+table([gearSkill+' level','New equipment'],rows,true)+'<p>These are equipment unlocks, not fixed target changes. Combat XP/s depends on your weapon, accuracy, enemy and food stops. Check survival with <a href="#/idle">Can I Idle?</a> before picking a target for an unattended session.</p>';
 }
 function readerCategory(name) {
   if(/XP|Experience/i.test(name))return 'XP';
@@ -222,10 +214,13 @@ function readerRateExamples(id) {
 function publicGuides(id) {
   if(!id){main.innerHTML='<h1>Skill Training Guides</h1>'+table(['Skill','Training guide'],(byType.get('Skill')||[]).map(s=>[link(s,true),'<a href="'+route('guide',{id:bare(s.id)})+'">'+escape(s.name)+'/Training</a>']),true);return;}
   id=bare(id);const skill=publicNode('Skill',id);if(!skill)return;
-  const notes=readerNotes(id),supply=readerCandidates(id).some(r=>r.acquisition?.status==='complete within restricted model'),rates=readerCandidates(id).length;
+  const notes=readerNotes(id),rates=readerCandidates(id).length;
   const comparison=rates?readerRateExamples(id):'';
-  const sections=[['leveling','Training (1–99)'],...(supply?[['supplies','Starting without supplies']]:[]),...(comparison?[['comparison','Which upgrades help most?']]:[]),['boosters','Boosters']];
-  main.innerHTML='<article class="training-guide-v2 reader-guide"><h1>'+escape(skill.name)+'/Training</h1><p class="guide-back">&lt; '+link(skill,true)+'</p><p class="guide-caption">For recipes, drops and unlocks, see '+link(skill,true)+'.</p>'+wikiContents(sections)+wikiSection('leveling','Training (1–99)',readerTraining(id))+(supply?wikiSection('supplies','Starting without supplies',readerSupplyRoute(id)):'')+(comparison?wikiSection('comparison','Which upgrades help most?',comparison):'')+wikiSection('boosters','Boosters','<p>'+readerText(notes[2])+'</p>'+readerBoosters(skill))+'<details class="guide-calculation"><summary>How the rates are calculated</summary>'+guideV2Method(id)+(id==='Thieving'?'<p>Success = min(1, (100 + level) / (100 + perception)). Expected cycle = stages × (action time + failure chance × stun time) / success chance.</p>':'')+'</details></article>';
+  const trainingTitle=rates?'Base XP benchmarks':'Training (1–99)';
+  const sections=[...(rates?[['fastest-route','Plan the fastest route']]:[]),['leveling',trainingTitle],...(comparison?[['comparison','Which upgrades help most?']]:[]),['setup-time','Is the setup worth it?'],['boosters','Boosters']];
+  main.innerHTML='<article class="training-guide-v2 reader-guide"><h1>'+escape(skill.name)+'/Training</h1><p class="guide-back">&lt; '+link(skill,true)+'</p><p class="guide-caption">For recipes, drops and unlocks, see '+link(skill,true)+'.</p>'+wikiContents(sections)+(rates?wikiSection('fastest-route','Plan the fastest route',trainingPlanSection(id)):'')+wikiSection('leveling',trainingTitle,readerTraining(id))+(comparison?wikiSection('comparison','Which upgrades help most?',comparison):'')+wikiSection('setup-time','Is the setup worth it?',trainingCompareSection())+wikiSection('boosters','Boosters','<p>'+readerText(notes[2])+'</p>'+readerBoosters(skill))+'<details class="guide-calculation"><summary>How the rates are calculated</summary>'+guideV2Method(id)+(id==='Thieving'?'<p>Success = min(1, (100 + level) / (100 + perception)). Expected cycle = stages × (action time + failure chance × stun time) / success chance.</p>':'')+'</details></article>';
+  trainingStartPlanner(id);
+  trainingStartComparison();
   const anchor=main.querySelector('.wiki-toc a[data-jump="boosters"]');
   if(anchor){const list=document.createElement('ol');for(const heading of main.querySelectorAll('#boosters > h3')){const li=document.createElement('li'),a=document.createElement('a');a.href='#'+heading.id;a.dataset.jump=heading.id;a.textContent=heading.textContent;li.append(a);list.append(li);}anchor.closest('li').append(list);}
 }

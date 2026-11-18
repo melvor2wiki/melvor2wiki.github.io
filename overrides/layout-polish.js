@@ -26,12 +26,14 @@ function polishSourceLevel(n) {
   if(levels.length)return levels.map(r=>{const s=publicNode('Skill',r.Data.Component?.Entity);return '<span class="level-line">'+(s?'<a href="'+detailUrl(s)+'" title="'+escape(s.name)+'" aria-label="'+escape(s.name)+'">'+icon(s)+'</a>':'')+'Level '+number(r.Data.Level)+'</span>';}).join('');
   return ({MiningRecipe:'Mining',WoodcuttingRecipe:'Woodcutting',ShopPurchase:'Shop',CombatArea:'Combat area',Dungeon:'Dungeon'})[n.type]||'—';
 }
-function polishLootSources(refs) {
-  let html=formatV2OriginalTable(['Source','Level','Qty','Chance','Chance (%)'],refs.map(r=>{
+function polishLootSources(refs,item) {
+  let html=formatV2OriginalTable(['Source','Level','Chance','Chance (%)'],refs.map(r=>{
     const text=publicRefChance(r),match=text.match(/^([\d,.]+)%$/),p=text==='Prospecting / rock completion'&&r.path[0]==='Product'?(r.parent?.Chance??1):match?Number(match[1].replace(/,/g,''))/100:null;
-    return [link(publicCanonical(r.from),true),polishSourceLevel(r.from),publicQty(r.parent||{}),p==null?escape(text):sortValue(publicFraction(p),p,true),p==null?'—':numericCell(p*100,'%')];
+    const amount=publicQty(r.parent||{});
+    const drop=amount!=='1' && item ? '<br>'+itemEntry({...(r.parent || {}),Item:item.id},r.from) : '';
+    return [link(publicCanonical(r.from),true)+drop,polishSourceLevel(r.from),p==null?escape(text):sortValue(publicFraction(p),p,true),p==null?'—':numericCell(p*100,'%')];
   }),true);
-  html=html.replace(/<th scope="col"><button[^>]*>Chance<span[\s\S]*?<\/th>\s*<th scope="col"><button[^>]*>Chance \(%\)<span[\s\S]*?<\/th>/,'<th scope="col" colspan="2"><button type="button" class="sort-head" data-sort-column="3" data-sort-field="3">Chance<span class="sort-indicator" aria-hidden="true"></span></button></th>');
+  html=html.replace(/<th scope="col"><button[^>]*>Chance<span[\s\S]*?<\/th>\s*<th scope="col"><button[^>]*>Chance \(%\)<span[\s\S]*?<\/th>/,'<th scope="col" colspan="2"><button type="button" class="sort-head" data-sort-column="2" data-sort-field="2">Chance<span class="sort-indicator" aria-hidden="true"></span></button></th>');
   return '<div class="loot-sources">'+html+'</div>'+(refs.some(r=>r.from.type==='MiningRecipe'&&r.path[0]==='Product')?'<p class="wiki-note">For the main mining product, chance is per completed rock.</p>':'');
 }
 function catalogUnique(records, preferItem) {

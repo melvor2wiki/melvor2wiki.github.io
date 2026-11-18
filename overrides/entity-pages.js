@@ -163,15 +163,15 @@ function publicItem(n) {
   const sourceChildren = [], sourceBody = [];
   if (creation.length) {
     sourceChildren.push({id:'creation', title:'Creation'});
-    sourceBody.push('<h3 id="creation">Creation</h3>' + table(['Skill','Requirements','Ingredients','XP','Base Time','Quantity'], creation.map(r => {
+    sourceBody.push('<h3 id="creation">Creation</h3>' + table(['Product','Skill','Requirements','Ingredients','XP','Creation Time'], creation.map(r => {
       const a = r.from, d = a.data;
       const time = d.BaseInterval != null ? d.BaseInterval * (d.Steps || 1) / 1000 : d.BaseGrowthTime != null ? d.BaseGrowthTime / 1000 : null;
-      return [publicSkills(a), requirements(a), wikiCosts(d.Ingredients || d.Costs,a), numericCell(d.BaseExperience), numericCell(time,' s'),publicQty(r.parent || {})];
+      return [itemEntry({...(r.parent || {}),Item:n.id},a), publicSkills(a), requirements(a), wikiCosts(d.Ingredients || d.Costs,a), numericCell(d.BaseExperience), numericCell(time,' s')];
     }),true));
   }
   if (loot.length) {
     sourceChildren.push({id:'loot', title:'Loot'});
-    sourceBody.push('<h3 id="loot">Loot</h3>' + polishLootSources(loot));
+    sourceBody.push('<h3 id="loot">Loot</h3>' + polishLootSources(loot,n));
   }
   if (sourceBody.length) sections.push({id:'sources',title:'Item Sources',children:sourceChildren,body:sourceBody.join('')});
   if (uses.length) sections.push({id:'uses',title:'Uses',body:table(['Product / Action','Skill','Requirements','XP','Ingredients / Cost'],uses.map(r => {

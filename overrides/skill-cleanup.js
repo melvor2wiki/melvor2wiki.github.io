@@ -43,9 +43,9 @@ function cleanHerbloreSections(skill, actions) {
       const inputs=n.data.Ingredients?.Items||[],herb=inputs.filter(x=>/Herb$/.test(x.Item)),other=inputs.filter(x=>!commonIds.has(x.Item)&&!/Herb$/.test(x.Item));
       const p=publicNode('Item',n.data.Products?.[0]?.Item);
       const d=n.data,seconds=(d.BasePreparingInterval+d.BaseHeatingInterval+d.BaseStirringInterval+10*d.BaseBottlingInterval)/1000;
-      return [requirements(n),p?link(p,true):link(n,true),numericCell(d.BaseExperience),publicItems(herb,n),publicItems(other,n),publicQty(d.Products?.[0]||{}),numericCell(seconds,' s'),p?wikiAllBonusText(p.data.Capabilities,p):'—'];
+      return [requirements(n),p?itemEntry(d.Products[0],n):link(n,true),numericCell(d.BaseExperience),publicItems(herb,n),publicItems(other,n),numericCell(seconds,' s'),p?wikiAllBonusText(p.data.Capabilities,p):'—'];
     });
-    return '<h3>'+escape(title)+'</h3>'+table(['Requirements','Potion','XP','Herb','Secondary','Quantity','Batch Time','Effect'],rows,true);
+    return '<h3>'+escape(title)+'</h3>'+table(['Requirements','Potion','XP','Herb','Secondary','Batch Time','Effect'],rows,true);
   }).join('');
   return [['herbs','Herbs',herbBody],['voci','Potions',potionBody]];
 }

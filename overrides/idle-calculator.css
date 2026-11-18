@@ -1,0 +1,12 @@
+#idle-profile fieldset { border: 1px solid var(--line, #616b77); margin: 0 0 .65rem; padding: .6rem .75rem .75rem; }
+#idle-profile legend { font-weight: 700; padding: 0 .35rem; }
+.idle-fields { display: flex; flex-wrap: wrap; align-items: flex-end; gap: .6rem .85rem; }
+.idle-fields label { display: grid; gap: .2rem; max-inline-size: 100%; }
+.idle-fields select, .idle-fields input { max-inline-size: 100%; }
+.idle-fields input[type="number"] { inline-size: 8rem; }
+#idle-profile details { margin-top: .75rem; }
+#idle-profile details .idle-fields { margin-top: .5rem; }
+.idle-result { font-weight: 700; white-space: nowrap; }
+.idle-fit { color: #32cd32; }
+.idle-exceeds { color: #ff5348; }
+.idle-review { color: #f0c46e; }

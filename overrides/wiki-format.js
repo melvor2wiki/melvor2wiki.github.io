@@ -26,7 +26,9 @@ function itemEntry(value, source, withChance = false) {
     const currency = publicNode('Currency', value.Currency), min = value.Quantity ?? value.MinQuantity, max = value.MaxQuantity ?? min;
     return '<span class="item-line">' + (currency ? link(currency, true) : 'Gold') + (min == null ? '' : ' ' + number(min) + (max > min ? '–' + number(max) : '')) + (withChance && value.Chance < 1 ? ' · ' + publicChanceDisplay(value.Chance) : '') + '</span>';
   }
-  return formatV2OriginalItemEntry(value, source, withChance);
+  const entry = formatV2OriginalItemEntry(value, source, withChance);
+  const min = value.Quantity ?? value.MinQuantity;
+  return min === 1 && !(value.MaxQuantity > 1) ? entry.replace('> ×1</span>', '></span>') : entry;
 }
 function formatV2Percent(text) {
   return String(text).replace(/(-?\d[\d,]*\.\d{3,})%/g, (_, amount) => {
@@ -38,11 +40,31 @@ function table(headers, rows, sortable = false) {
   let names = headers.map(h => String(h).replace(/^Base XP$/, 'XP').replace(/^Base Chance$|^Chance \/ Trigger$/, 'Chance'));
   const text = c => String(c && typeof c === 'object' ? c.html : c ?? '').replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').trim();
   const omit = new Set(), shared = [], originalFields = headers.map((_,i)=>i);
+  const qty = names.findIndex(heading => /^(?:Qty|Quantity|Expected quantity)$/i.test(heading));
+  if (qty >= 0 && names.length > 1) {
+    const item = names.findIndex(heading => /^(?:Item|Product|Potion|Output|Food|Reward|Entry|Source|Name)$/i.test(heading));
+    const column = item >= 0 ? item : qty === 0 ? 1 : 0;
+    rows = rows.map(row => {
+      const amount = text(row[qty]);
+      if (!amount || /^(1|—)$/.test(amount) || ['—',''].includes(text(row[column]))) return row;
+      const copy = [...row], label = row[column];
+      const suffix = ' <span class="quantity">×' + escape(amount) + '</span>';
+      const append = html => html.includes('<span class="subtle">')
+        ? html.replace('<span class="subtle">', suffix + '<span class="subtle">') : html + suffix;
+      copy[column] = label && typeof label === 'object' ? {...label, html: append(label.html)} : append(label);
+      return copy;
+    });
+    omit.add(qty);
+  }
   names.forEach((heading,i) => {
+    if (omit.has(i)) return;
     const values = rows.map(r=>text(r[i]));
     if(rows.length && values.every(v=>!v || /^[—–-]$/.test(v))) omit.add(i);
-    else if(rows.length > 1 && !/^(?:Name|Item|Potion|Product|Source|Skill|Monster|Pet|Rank|Objective|Task|Action|Levels?|Tier)/i.test(heading) && values.every(v=>v===values[0]) && values[0] && !/^(?:XP|XP\/s|Value|Sell Price|Quantity|Qty|Points|Count|Effects?|Bonuses?|Modifiers?)$/i.test(heading)) {
-      omit.add(i);shared.push('<p class="table-shared"><strong>'+escape(heading)+':</strong> '+String(rows[0][i]&&typeof rows[0][i]==='object'?rows[0][i].html:rows[0][i])+'</p>');
+    else if((rows.length > 1 || /^Creation Time$/i.test(heading)) && !/^(?:Name|Item|Potion|Product|Source|Skill|Monster|Pet|Rank|Objective|Task|Action|Levels?|Tier)/i.test(heading) && values.every(v=>v===values[0]) && values[0] && !/^(?:XP|XP\/s|Value|Sell Price|Quantity|Qty|Points|Count|Effects?|Bonuses?|Modifiers?)$/i.test(heading)) {
+      omit.add(i);
+      const shownAbove = pageBaseInterval != null && /(?:Time|Interval)$/i.test(heading) &&
+        values[0].replace(/\s+/g, '') === number(pageBaseInterval / 1000) + 's';
+      if (!shownAbove) shared.push('<p class="table-shared"><strong>'+escape(heading)+':</strong> '+String(rows[0][i]&&typeof rows[0][i]==='object'?rows[0][i].html:rows[0][i])+'</p>');
     }
   });
   if(omit.size){names=names.filter((_,i)=>!omit.has(i));rows=rows.map(r=>r.filter((_,i)=>!omit.has(i)));}
@@ -118,6 +140,7 @@ function formatV2Pets() {
     wikiSection('pet-list', 'Pet List', table(['Pet', 'Unlock Conditions', 'Effect'], pets.map(p => [link(p, true), wikiPetChance(p), wikiAllBonusText(p.data.Bonuses, p)]), true));
 }
 function publicRoute(screen, params) {
+  if (screen === 'idle') {idlePage(params);return true;}
   if (screen === 'money') {moneyGuide(params);return true;}
   if (screen === 'pets' || ((screen === 'categoria' || screen === 'famiglia') && /^(pets|Pet)$/.test(params.get('id')))) {formatV2Pets();return true;}
   if (screen === 'guides') {publicGuides();return true;}
