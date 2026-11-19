@@ -215,8 +215,11 @@ function publicItem(n) {
     (open.AlwaysDrops?.length ? '<h3>Guaranteed Contents</h3>' + publicRows(open.AlwaysDrops,n) : '') +
     (open.DropTable?.length ? '<h3>Random Contents</h3>' + publicLootTables([{Chance:1,Table:open.DropTable}],n) : '')});
   const tasks=entityV2Tasks(n); if(tasks)sections.push(tasks);
+  const dropSources=dropEstimateSources(refs.filter(r => r.role==='source' && publicLinkable(r.from) && !/Task|Quest/.test(r.from.type)));
+  sections.push({id:'drop-calculator',title:'Drop Rate Calculator',body:dropEstimateMarkup(dropSources)});
   const description=n.data.Description ? '<p>' + escape(clean(displayText(n.data.Description))) + '</p>' : '';
   entityV2Render(n,info,sections,description);
+  dropEstimateBind(dropSources);
 }
 function publicMonster(n) {
   const s = payload.monsters?.enemies?.[bare(n.id)]; if (!s) return false;
