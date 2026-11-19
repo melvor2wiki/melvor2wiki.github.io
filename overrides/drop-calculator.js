@@ -97,31 +97,32 @@ function dropEstimateTime(seconds) {
   return number(seconds) + ' s';
 }
 
-function dropEstimateMarkup(sources) {
+function dropEstimateMarkup(sources, xpFactor = 0) {
   const field = (name,label,min,max) => '<label>' + label + ' <input type="number" inputmode="decimal" name="' + name +
     '" min="' + min + '" max="' + max + '" step="any"></label>';
-  return '<form class="drop-estimate-form"><label>Source <select name="source">' +
+  const source = xpFactor ? '' : '<label>Source <select name="source">' +
     sources.map(({node,name},i) => moneyOption(i,node.name+' · '+name,0)).join('') +
-    moneyOption('custom','Custom rates',sources.length ? 0 : 'custom') + '</select></label>' +
-    '<div class="drop-estimate-fields">' +
+    moneyOption('custom','Custom rates',sources.length ? 0 : 'custom') + '</select></label>';
+  return '<form class="drop-estimate-form">' + source + '<div class="drop-estimate-fields">' +
     field('min','Action time or minimum (s)',0,1000000000) +
-    field('max','Maximum time (s, optional)',0,1000000000) +
+    field('max','Maximum time (s)',0,1000000000) +
     field('success','Action success (%)',0,100) +
-    field('chance','Drop on success (%)',0,100) +
+    (xpFactor ? field('xp','XP per successful gain',0,1000000000) : field('chance','Drop on success (%)',0,100)) +
     '</div><details><summary>Stages and failure delay</summary><div class="drop-estimate-fields">' +
     field('stages','Successes per loot roll',1,1000) +
     field('delay','Extra seconds after a failure',0,1000000000) +
     '</div></details></form><p class="drop-estimate-basis"></p><div class="drop-estimate-result" aria-live="polite"></div>';
 }
 
-function dropEstimateBind(sources) {
+function dropEstimateBind(sources, xpFactor = 0) {
   const section = main.querySelector('#drop-calculator');
   const form = section.querySelector('form'), result = section.querySelector('.drop-estimate-result');
   const basis = section.querySelector('.drop-estimate-basis');
   const source = form.elements.namedItem('source');
-  const fieldNames = ['min','max','success','chance','stages','delay'];
+  const fieldNames = ['min','max','success',xpFactor ? 'xp' : 'chance','stages','delay'];
   const fields = Object.fromEntries(fieldNames.map(name=>[name,form.elements.namedItem(name)]));
   fields.stages.step = '1';
+  let maxFollowsMin = true;
   function render() {
     const valid = fieldNames.every(name=>fields[name].validity.valid);
     if (!valid) {
@@ -129,13 +130,15 @@ function dropEstimateBind(sources) {
       return;
     }
     const read = name => fields[name].value === '' ? null : Number(fields[name].value);
-    const duration = read('min'), end = read('max'), success = read('success'), chance = read('chance');
+    const duration = read('min'), end = read('max'), success = read('success');
+    const dropInput = read(xpFactor ? 'xp' : 'chance');
+    const q = dropInput == null ? null : Math.min(1,dropInput/(xpFactor||100));
     const stages = read('stages') ?? 1, delay = read('delay') ?? 0;
-    if (success == null || chance == null) {
-      result.innerHTML = '<p>Enter the action success and drop chances to calculate the odds.</p>';
+    if (success == null || q == null) {
+      result.innerHTML = xpFactor ? '<p>Enter XP gained in a single roll to calculate the odds.</p>' : '<p>Enter the action success and drop chances to calculate the odds.</p>';
       return;
     }
-    if (success === 0 || chance === 0) {
+    if (success === 0 || q === 0) {
       result.innerHTML = '<p>With these rates the item cannot drop.</p>';
       return;
     }
@@ -143,39 +146,43 @@ function dropEstimateBind(sources) {
       result.innerHTML = '<p>Enter a positive action time. Maximum time must be at least that long.</p>';
       return;
     }
-    const single = stages === 1, s = success/100, q = chance/100;
+    const single = stages === 1, s = success/100;
     const probability = single ? s*q : q;
     const average = duration == null ? null : ((duration+(end ?? duration))/2+(1-s)*delay) * (single ? 1 : stages/s);
     const variable = (end != null && end !== duration) || (s < 1 && (!single || delay > 0));
-    const timeBounds = duration != null && variable && (single || s === 1);
     const rows = [0.5,0.9,0.95,0.99].map(confidence=>{
       const count = dropEstimateAttempts(probability,confidence);
       const time = count == null || average == null ? '—' : dropEstimateTime(count*average);
-      const bounds = count == null ? '—' : dropEstimateTime(count*stages*duration) + ' – ' +
-        dropEstimateTime(count*stages*((end ?? duration)+(s<1 ? delay : 0)));
-      return [Math.round(confidence*100)+'%',count == null ? 'Beyond calculation range' : number(count),time,...(timeBounds?[bounds]:[])];
+      return [Math.round(confidence*100)+'%',count == null ? 'Beyond calculation range' : number(count),time];
     });
+    const mean = average == null ? '' : '<p>Average time to first drop <strong>' + dropEstimateTime(average/probability) + '</strong></p>';
     result.innerHTML = '<p>' + (single ? 'Chance per attempt' : 'Chance per completed loot roll') + ': <strong>' +
-      publicChanceDisplay(probability) + '</strong></p>' +
-      table(['Chance to get at least one',single?'Attempts':'Completed loot rolls',variable?'Time at average pace':'Estimated time',
-        ...(timeBounds?['Time bounds']:[])],rows) +
-      '<p class="wiki-note">Each row is the minimum number of independent attempts or rolls to hit that chance.' +
-      (variable ? ' Time at average pace uses the midpoint of the duration range and expected failures.' : '') +
-      (timeBounds ? ' The bounds bracket when the stated chance is reached if every attempt stays within the entered times, including failure delay.' : '') +
-      (!timeBounds && variable && average != null ? ' Actual elapsed time may vary.' : '') +
+      publicChanceDisplay(probability) + '</strong></p>' + mean +
+      table(['Chance to get at least one',single?'Attempts':'Completed loot rolls','Estimated time'],rows) +
+      '<p class="wiki-note">Each row gives the minimum number of independent attempts or rolls to hit that chance.' +
+      (variable ? ' Estimated times use the average action duration and expected failures.' : '') +
       (average == null ? ' Add an action time to estimate the duration.' : '') + '</p>';
   }
   function useSource() {
-    const method = source.value === 'custom' ? null : sources[Number(source.value)];
-    const values = method ? {...method,chance:method.p*100} : {success:100,stages:1,delay:0};
+    const method = !source || source.value === 'custom' ? null : sources[Number(source.value)];
+    const averageTime = method?.min == null ? null : (method.min + (method.max ?? method.min)) / 2;
+    const values = method ? {...method,min:averageTime,max:averageTime,chance:method.p*100} : {success:100,stages:1,delay:0};
     for (const name of fieldNames) fields[name].value = values[name] ?? '';
+    maxFollowsMin = true;
     form.querySelector('details').open = Boolean(method && (method.stages>1 || method.delay>0));
-    basis.innerHTML = method ? 'Base drop chance ' + escape(method.name) + ' from ' + link(method.node,true) +
-      '. Enter the times and chances you see with your setup.' : 'Use the drop chance after any loot-table activation roll. Enter 100% success for actions that always reach the loot roll.';
+    basis.innerHTML = xpFactor ? 'One roll per eligible XP gain. Enter the XP actually awarded after bonuses. The chance is XP divided by ' + number(xpFactor) + '.'
+      : method ? 'Base drop chance ' + escape(method.name) + ' from ' + link(method.node,true) +
+        (method.max != null && method.max !== method.min ? '. Both times start at the base average of ' + number(averageTime) + ' s' : '') +
+        '. Enter the times and chances you see with your setup.' : 'Use the drop chance after any loot-table activation roll. Enter 100% success for actions that always reach the loot roll.';
     render();
   }
-  source.addEventListener('change',useSource);
-  form.addEventListener('input', event => { if (event.target !== source) render(); });
+  if (source) source.addEventListener('change',useSource);
+  form.addEventListener('input', event => {
+    if (event.target === source) return;
+    if (event.target === fields.max) maxFollowsMin = fields.max.value === '' || fields.max.value === fields.min.value;
+    if (event.target === fields.min && maxFollowsMin) fields.max.value = fields.min.value;
+    render();
+  });
   form.addEventListener('submit', event => event.preventDefault());
   useSource();
 }

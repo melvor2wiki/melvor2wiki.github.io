@@ -255,5 +255,8 @@ function wikiPetPage(n) {
   sections.push({id:'pet-unlock',title:'Unlock',body:'<p>'+unlock+'</p>'});
   const effect=wikiAllBonusText(n.data.Bonuses,n);
   if(effect && effect!=='—')sections.push({id:'pet-effect',title:'Effect',body:'<p>'+effect+'</p>'});
+  const xpFactor=bare(n.data.Trigger?.Type||'')==='ChancePerExperience' ? d.ScaleFactor : 0;
+  sections.push({id:'drop-calculator',title:'Drop Rate Calculator',body:dropEstimateMarkup([],xpFactor)});
   entityV2Render(n,[['Category','Pet'],['Skill',skillLabel]],sections,n.data.Description?'<p>'+escape(clean(displayText(n.data.Description)))+'</p>':'');
+  dropEstimateBind([],xpFactor);
 }

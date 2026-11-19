@@ -3,10 +3,10 @@ function publicChanceDisplay(p) {
   if (!Number.isFinite(p)) return '—';
   if (p <= 0) return '<span class="drop-odds">0%</span>';
   publicChanceDisplay.regular ||= new Intl.NumberFormat('it-IT',{maximumFractionDigits:2});
-  publicChanceDisplay.small ||= new Intl.NumberFormat('it-IT',{maximumSignificantDigits:3});
+  publicChanceDisplay.percent ||= new Intl.NumberFormat('it-IT',{minimumFractionDigits:2,maximumFractionDigits:2});
   const ratio = publicChanceDisplay.regular.format(1 / p);
   const percent = p * 100;
-  const percentage = (percent < 1 ? publicChanceDisplay.small : publicChanceDisplay.regular).format(percent);
+  const percentage = percent < .005 ? '&lt;0,01' : publicChanceDisplay.percent.format(percent);
   return '<span class="drop-odds">1/' + ratio + ' (' + percentage + '%)</span>';
 }
 function link(node, withIcon = false) {
@@ -141,7 +141,7 @@ function wikiPetChance(pet) {
 function formatV2Pets() {
   const pets = byType.get('Pet') || [];
   main.innerHTML = '<h1>Pets</h1><p>Pets provide permanent bonuses once unlocked. Their effects remain active without equipping them.</p>' +
-    wikiSection('drop-rates', 'Drop Rates', '<p>For pets earned through skill XP, each XP gain gives a separate roll. Divide the XP from that gain by the pet’s scale factor to find its chance. Most skill pets use <strong>13,034,431</strong>.</p><p>For example, a 100 XP gain gives about <strong>' + publicChanceDisplay(100 / 13034431) + '</strong> per roll. A 1,000 XP gain gives about <strong>' + publicChanceDisplay(1000 / 13034431) + '</strong>. Larger XP gains improve each roll; faster actions give more rolls.</p><p>Every roll is independent. A long dry streak does not improve the next roll, and reaching 13 million total XP does not guarantee a pet. With 100 XP per action and a scale factor of 13,034,431, roughly 90,346 actions give a 50% chance of finding it at least once.</p><p>Some pets instead require a task or a specific event. Their own pages list those conditions.</p>') +
+    wikiSection('drop-rates', 'Drop Rates', '<p>For pets earned through skill XP, each XP gain gives a separate roll. Divide the XP from that gain by the pet’s scale factor to find its chance. Most skill pets use <strong>13,034,431</strong>.</p><p>For example, a 100 XP gain gives about <strong>' + publicChanceDisplay(100 / 13034431) + '</strong> per roll. A 1,000 XP gain gives about <strong>' + publicChanceDisplay(1000 / 13034431) + '</strong>. Larger XP gains improve each roll; faster actions give more rolls.</p><p>Every roll is independent. A long dry streak does not improve the next roll, and reaching 13 million total XP does not guarantee a pet. With 100 XP per action and a scale factor of 13,034,431, at least ' + number(dropEstimateAttempts(100/13034431,.5)) + ' actions give a 50% chance of finding it at least once.</p><p>Some pets instead require a task or a specific event. Their own pages list those conditions.</p>') +
     wikiSection('pet-list', 'Pet List', table(['Pet', 'Unlock Conditions', 'Effect'], pets.map(p => [link(p, true), wikiPetChance(p), wikiAllBonusText(p.data.Bonuses, p)]), true));
 }
 function publicRoute(screen, params) {
