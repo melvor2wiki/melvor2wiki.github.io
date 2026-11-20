@@ -2,7 +2,7 @@
 function readerNotes(id) {
   const notes={
     Woodcutting:['Cut the fastest tree you can access, then move on when the next one beats it.','Keep a supply of logs for [Skill:Firemaking] and [Skill:Fletching]. Extra logs are useful, but they do not award extra Woodcutting XP.','Double damage, weak spots and instant cuts shorten a cut. Compare those bonuses as well as XP and swing speed.'],
-    Mining:['Train on the rock with the best break XP for the time it takes to mine.','Save ore for [Skill:Smithing] before selling the rest. Prospecting makes long dry streaks less costly than the first-hit chance suggests.','Break chance and shatter bonuses can matter more than a small XP bonus.'],
+    Mining:['Compare rocks with your setup. Each miss adds the current break chance to prospecting until the rock is guaranteed to break.','Save ore for [Skill:Smithing] before selling the rest. A faster rock for XP can produce a different material.','A 25% break chance boost raises a rock with 20% base chance to 25%. It also adds 25 percentage points of prospecting per miss. Shatter doubles XP and triples the primary output for that break.'],
     Fishing:['Use the quickest XP spot until you need a particular fish for another skill.','Bank the fish you will cook in [Skill:Cooking]. If you are gathering food rather than rushing levels, choose the catch you need.','Shorter fishing intervals speed up training; extra catches mainly improve your food supply.'],
     Cooking:['Cooking can be quick when your bank is stocked. Compare the time to catch or gather the ingredients before switching to a new recipe.','If your bank is empty, check the gathering route below before choosing what to cook. Keep useful food for combat.','Success chance matters most while your proficiency is low. The table includes failed cooks.'],
     Herblore:['Brew in batches and keep the potions you will actually use.','Gather the herbs and secondary ingredients before starting. A short brew is only fast overall if its ingredients are easy to replace.','Check which brewing phase a tool improves: preparing, heating, stirring or bottling.'],
@@ -38,6 +38,7 @@ function readerCandidates(id) {
 }
 function readerRate(r,lv,id) {
   if(id==='Thieving')return r.xp/thievingTiming(guideV2Node(r),lv).seconds;
+  if(id==='Mining')return miningCycle(guideV2Node(r))?.rate||0;
   return guideV2Rate(r,lv,id);
 }
 function readerRanges(id) {
@@ -206,7 +207,7 @@ function publicGuides(id) {
   if(!id){main.innerHTML='<h1>Skill Training Guides</h1>'+table(['Skill','Training guide'],(byType.get('Skill')||[]).map(s=>[link(s,true),'<a href="'+route('guide',{id:bare(s.id)})+'">'+escape(s.name)+'/Training</a>']),true);return;}
   id=bare(id);const skill=publicNode('Skill',id);if(!skill)return;
   const notes=readerNotes(id),rates=readerCandidates(id).length;
-  const comparison=rates&&id!=='Thieving'?readerRateExamples(id):'';
+  const comparison=rates&&!['Thieving','Mining'].includes(id)?readerRateExamples(id):'';
   const trainingTitle=id==='Thieving'?'Choosing a target':rates?'Base XP benchmarks':'Training (1–99)';
   const sections=[...(rates?[['fastest-route','Plan the fastest route']]:[]),['leveling',trainingTitle],...(comparison?[['comparison','Which upgrades help most?']]:[]),['setup-time','Is the setup worth it?'],['boosters','Boosters']];
   main.innerHTML='<article class="training-guide-v2 reader-guide"><h1>'+escape(skill.name)+'/Training</h1><p class="guide-back">&lt; '+link(skill,true)+'</p><p class="guide-caption">For recipes, drops and unlocks, see '+link(skill,true)+'.</p>'+wikiContents(sections)+(rates?wikiSection('fastest-route','Plan the fastest route',trainingPlanSection(id)):'')+wikiSection('leveling',trainingTitle,id==='Thieving'?thievingTrainingNotes():readerTraining(id))+(comparison?wikiSection('comparison','Which upgrades help most?',comparison):'')+wikiSection('setup-time','Is the setup worth it?',trainingCompareSection())+wikiSection('boosters','Boosters','<p>'+readerText(notes[2])+'</p>'+readerBoosters(skill))+'<details class="guide-calculation"><summary>How the rates are calculated</summary>'+guideV2Method(id)+(id==='Thieving'?'<p>A successful attempt advances the stage. XP is awarded only when the target is completed. The planner counts failed attempts and stun time in every cycle.</p>':'')+'</details></article>';

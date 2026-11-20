@@ -89,6 +89,7 @@ function thievingTrainingBenchmark(profile) {
 
 function trainingChoice(action, skill, level, profile, supply) {
   if (skill === 'Thieving') return thievingTrainingChoice(action,level,profile,supply);
+  if (skill === 'Mining') return miningRockSetup(action,level,profile);
   const node = guideV2Node(action);
   const levelFor = id => id === skill ? level : profile.support;
   if (action.level > level || !trainingEligible(node, levelFor, profile.unlocked)) return null;
@@ -155,11 +156,11 @@ function trainingPlan(skill, profile) {
   route.reverse();
   const ranges = [];
   for (const step of route) {
-    const {action, tool, prep, active, inputs} = step.choice;
+    const {action, tool, gear, prep, active, inputs} = step.choice;
     const last = ranges.at(-1);
-    const key = [tool?.id,...inputs.map(x => x.path.node.key)].join('/');
+    const key = [tool?.id,...(gear||[]).map(node=>node.key),...inputs.map(x => x.path.node.key)].join('/');
     const range = last?.action.id === action.id && last.key === key ? last :
-      {from: step.level, to: step.level, action, tool, key, xp: 0, seconds: 0, prep: 0, switches: 0, sources: new Map()};
+      {from: step.level, to: step.level, action, tool, gear, key, xp: 0, seconds: 0, prep: 0, switches: 0, sources: new Map()};
     range.to = step.level + 1;
     range.xp += step.xp;
     range.seconds += step.seconds;
@@ -186,7 +187,7 @@ function trainingPlanSection(skill) {
       '<fieldset><legend>Tools you own</legend>'+thievingTrainingTools().map(tool=>'<label><input type="checkbox" name="tool" value="'+escape(tool.id)+'"> '+
         icon(tool)+escape(tool.name)+'</label> ').join('')+'</fieldset>'+
       '<p>Enter bonuses from your other gear. The planner adds each selected key’s target-specific bonus and picks a compatible tool for each target.</p>':'')+
-    '<button>Plan training</button></form>' +
+    (skill==='Mining'?miningPlannerOptions():'')+'<button>Plan training</button></form>' +
     '<p>Enter a level your support skills already meet. Leave extra unlocks unchecked to avoid routes gated by gear, shops, Guild ranks or milestones. The switch cost covers your time getting set up each time you change methods.</p>' +
     '<p>Estimates start at the XP for your start level and apply the bonuses you enter. The route credits XP earned while making ingredients in this skill. Supply chains use base action times. Other skill levels are assumed ready. Passive or unpriced supplies and temporary bonuses are outside the estimate.</p><div id="training-plan-result" aria-live="polite"></div>';
 }
@@ -207,16 +208,25 @@ function trainingStartPlanner(skill) {
       result.innerHTML = '<p>Choose a goal above your current level.</p>';
       return;
     }
+    if(skill==='Mining'){
+      profile.miningOwned=values.getAll('miningOwned');
+      profile.miningPreview=values.has('miningPreview');
+      profile.miningBreak=Number(values.get('miningBreak'));
+      profile.miningProspecting=Number(values.get('miningProspecting'));
+      profile.miningShatter=Number(values.get('miningShatter'));
+      profile.miningRefill=values.get('miningRefill')===''?null:Number(values.get('miningRefill'));
+      profile.miningSources=miningProfileSources(profile);
+    }
     const plan = trainingPlan(skill, profile);
-    const targets=skill==='Thieving'?thievingTrainingBenchmark(profile):'';
+    const targets=skill==='Thieving'?thievingTrainingBenchmark(profile):skill==='Mining'?miningTrainingBenchmark(profile):'';
     if (!plan.ranges.length) {
       result.innerHTML = '<p>No route begins at those levels with the modeled sources. Try banked supplies or raise the support level if you already have those unlocks.</p>'+targets;
       return;
     }
     result.innerHTML = '<p><strong>Level ' + profile.from + ' to ' + plan.reached + ' takes about ' + trainingTime(plan.seconds) + '.</strong></p>' +
       (plan.reached < profile.to ? '<p>The available routes end here. Supply or unlock data is missing for the next level.</p>' : '') +
-      table(['Train from → to','Train on',...(skill==='Thieving'?['Tool']:[]),'XP/s incl. prep','Supply + switch time','Total time','Get supplies from'], plan.ranges.map(range => [
-        range.from + ' → ' + range.to, guideV2Link(range.action), ...(skill==='Thieving'?[range.tool?link(range.tool,true):'—']:[]), numericCell(range.xp / (range.seconds + range.switches)),
+      table(['Train from → to','Train on',...(skill==='Thieving'?['Tool']:skill==='Mining'?['Equip']:[]),'XP/s incl. prep','Supply + switch time','Total time','Get supplies from'], plan.ranges.map(range => [
+        range.from + ' → ' + range.to, guideV2Link(range.action), ...(skill==='Thieving'?[range.tool?link(range.tool,true):'—']:skill==='Mining'?[miningSetupLabel(range)]:[]), numericCell(range.xp / (range.seconds + range.switches)),
         trainingTime(range.prep + range.switches), trainingTime(range.seconds + range.switches),
         [...range.sources.values()].map(node => link(node, true)).join('<br>') || '—'
       ]), true)+targets;

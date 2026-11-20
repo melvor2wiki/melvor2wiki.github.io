@@ -134,6 +134,7 @@ app+='\n'+(root/'overrides/idle-calculator.js').read_text(encoding='utf-8')
 app+='\n'+(root/'overrides/drop-odds.js').read_text(encoding='utf-8')
 app+='\n'+(root/'overrides/drop-calculator.js').read_text(encoding='utf-8')
 app+='\n'+(root/'overrides/training-route.js').read_text(encoding='utf-8')
+app+='\n'+(root/'overrides/mining-training.js').read_text(encoding='utf-8')
 other_nav = '    navGroup("quests"), navGroup("shops"), navGroup("mastery"), navGroup("pets"),\n'
 assert app.count(other_nav) == 1
 app = app.replace(other_nav, other_nav + """    moneyNavLink(),
