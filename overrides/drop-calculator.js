@@ -1,16 +1,19 @@
 function dropEstimateMethod(ref) {
   const {from: node,path,parent} = ref, [root] = path, d = node.data;
-  if ((parent?.MaxQuantity ?? parent?.MinQuantity ?? parent?.Quantity ?? 1) <= 0) return null;
+  const low = parent?.MinQuantity ?? parent?.Quantity ?? (node.type === 'ItemUpgrade' ? d.QuantityPerUpgrade : 1);
+  const high = parent?.MaxQuantity ?? low;
+  if (!Number.isSafeInteger(low) || !Number.isSafeInteger(high) || low < 0 || high < low || high === 0) return null;
   const {p: indexed,basis} = lootReference(ref);
   let p = indexed, name = basis || 'per action', roll = path.join('/'), trigger = roll;
-  let min = null, max = null, success = 100, stages = 1, delay = 0;
+  let min = null, max = null, success = 100, stages = 1;
   const tableIndex = path.indexOf('ItemTables');
   if (node.type === 'Enemy' || node.type === 'Dungeon' || node.type === 'Item') {
     if (node.type === 'Item' && path[1] !== 'MelvorBase:Openable') return null;
     if (node.type !== 'Item' && tableIndex < 0 && !path.includes('FixedItems')) return null;
     name = {Enemy:'per kill',Dungeon:'per clear',Item:'per opening'}[node.type];
     trigger = name;
-    roll = tableIndex >= 0 ? path.slice(0,tableIndex+2).join('/') : node.type === 'Item' ? path[2] : 'guaranteed';
+    roll = tableIndex >= 0 ? path.slice(0,tableIndex+2).join('/') :
+      path.includes('DropTable') ? 'random' : path.slice(0,-1).join('/');
   } else if (node.type === 'ThievingRecipe') {
     const completion = root === 'CompletionDropTable';
     if (!completion && !['CommonDropTable','RareDropTable'].includes(root)) return null;
@@ -19,7 +22,6 @@ function dropEstimateMethod(ref) {
     stages = completion ? Math.max(1,d.Stages || 1) : 1;
     min = d.BaseInterval / 1000;
     success = null;
-    delay = 2;
   } else if (node.type === 'FishingRecipe') {
     if (!['RandomProducts','SpecialProducts','JunkItem'].includes(root)) return null;
     name = 'per cast';
@@ -29,10 +31,14 @@ function dropEstimateMethod(ref) {
     min = d.BaseMinInterval / 1000;
     max = d.BaseMaxInterval / 1000;
   } else if (node.type === 'MiningRecipe') {
+    if (root !== 'Product' && root !== 'RandomProductsPerHit') return null;
     if (root === 'Product') {
       name = 'per completed rock';
       min = payload.guides?.skills?.Mining?.rankings?.find(row => row.id === node.id)?.seconds ?? null;
-    } else if (root === 'RandomProductsPerHit') min = d.BaseInterval / 1000;
+    } else {
+      name = 'per hit';
+      min = d.BaseInterval / 1000;
+    }
   } else if (node.type === 'WoodcuttingRecipe') {
     name = root === 'RandomProductsPerHit' ? 'per hit' : 'per completed cut';
     min = root === 'RandomProductsPerHit' ? d.BaseInterval / 1000 : actionTime(node) / 1000;
@@ -46,14 +52,33 @@ function dropEstimateMethod(ref) {
     name = 'per production cycle';
     min = d.ProductInterval / 1000;
   } else if (node.type === 'ShopPurchase') {
-    if (!d.AllowBulkPurchase || d.DefaultBuyLimit !== 0) return null;
+    if (root !== 'Provides') return null;
     name = 'per purchase';
+  } else if (node.type === 'ItemUpgrade') {
+    if (root !== 'UpgradedItem') return null;
+    name = 'per upgrade';
+    p = 1;
+  } else if (node.type === 'AgilityCourse') {
+    if (!['CompletionRewards','TimedCompletionRewards'].includes(root)) return null;
+    name = root === 'TimedCompletionRewards' ? 'per timed clear' : 'per clear';
+    p = root === 'TimedCompletionRewards' ? d[root]?.[path[1]]?.Chance : 1;
   } else if (node.type === 'HuntingAnimal' || node.type === 'FarmingRecipe') {
-    name = node.type === 'HuntingAnimal' ? 'per successful hunt' : 'per harvest';
+    if (node.type === 'HuntingAnimal') {
+      if (root === 'SurveyingProducts') return null;
+      name = 'per successful hunt';
+    } else {
+      name = 'per harvest';
+      min = d.BaseInterval / 1000;
+    }
   }
   if (!(p > 0 && p <= 1)) return null;
-  return {node,p,min:Number.isFinite(min) && min>0 ? min : null,max:Number.isFinite(max) && max>0 ? max : null,
-    success,stages,delay,name,roll,trigger};
+  if (!['Enemy','Dungeon','Item','ThievingRecipe','FishingRecipe'].includes(node.type)) {
+    trigger = name;
+    roll = path.slice(0,-1).join('/');
+  }
+  const timed = root === 'TimedCompletionRewards' ? d[root][path[1]].TimeInMS : null;
+  return {node,p,min:Number.isFinite(min) && min>0 ? min : null,max:Number.isFinite(max) && max>0 ? max : null,timed,
+    success,stages,name,roll,trigger,low,high,limit:node.type === 'ShopPurchase' ? d.DefaultBuyLimit : null};
 }
 
 function dropEstimateSources(refs) {
@@ -67,10 +92,25 @@ function dropEstimateSources(refs) {
     const trigger = method.node.key + '/' + method.trigger;
     if (!buckets.has(trigger)) buckets.set(trigger,{...method,rolls:new Map()});
     const bucket = buckets.get(trigger);
-    bucket.rolls.set(method.roll,(bucket.rolls.get(method.roll)||0)+method.p);
+    if (!bucket.rolls.has(method.roll)) bucket.rolls.set(method.roll,[]);
+    bucket.rolls.get(method.roll).push({p:method.p,low:method.low,high:method.high,timed:method.timed});
   }
   const sources = [...buckets.values()].map(({rolls,...method}) => {
-    const probabilities = [...rolls.values()].map(p => Math.min(1,p));
+    method.rolls = [...rolls.values()];
+    if (method.timed != null) {
+      const entries = method.rolls.flat();
+      method.tiers = method.node.data.TimedCompletionRewards.map(tier => ({
+        time:tier.TimeInMS,
+        rolls:entries.filter(row=>row.timed===tier.TimeInMS).map(row=>[row])
+      })).sort((a,b)=>a.time-b.time);
+      const first = method.tiers.find(tier=>tier.rolls.length);
+      method.min = first.time/1000;
+      method.rolls = first.rolls;
+      method.p = method.rolls[0][0].p;
+      return method;
+    }
+    const probabilities = method.rolls.map(entries => Math.min(1,entries.reduce((sum,row) =>
+      sum + row.p * (row.low ? 1 : row.high/(row.high+1)),0)));
     method.p = probabilities.length === 1 ? probabilities[0] : -Math.expm1(
       probabilities.reduce((sum,p) => sum + Math.log1p(-p),0));
     return method;
@@ -97,21 +137,82 @@ function dropEstimateTime(seconds) {
   return number(seconds) + ' s';
 }
 
+// The final bucket absorbs every outcome at or above the requested quantity.
+function dropCombine(a, b, target) {
+  const result = Array(target + 1).fill(0);
+  for (let i = 0; i <= target; i++) {
+    if (!a[i]) continue;
+    for (let j = 0; j <= target; j++) {
+      if (b[j]) result[Math.min(i+j,target)] += a[i]*b[j];
+    }
+  }
+  return result;
+}
+
+function dropQuantityDistribution(rolls, target) {
+  const identity = Array(target+1).fill(0);
+  identity[0] = 1;
+  return rolls.reduce((total, entries) => {
+    const dist = Array(target+1).fill(0);
+    dist[0] = Math.max(0,1-entries.reduce((sum,row)=>sum+row.p,0));
+    for (const {p,low,high} of entries) {
+      const each = p/(high-low+1);
+      for (let i=low; i<Math.min(target,high+1); i++) dist[i] += each;
+      if (high>=target) dist[target] += each*(high-Math.max(target,low)+1);
+    }
+    return dropCombine(total,dist,target);
+  },identity);
+}
+
+function dropQuantityStats(rolls, target, success, probability, confidences) {
+  if (target === 1) return {mean:1/probability, counts:confidences.map(c=>dropEstimateAttempts(probability,c))};
+  const dist = dropQuantityDistribution(rolls,target).map(p=>p*success);
+  dist[0] += 1-success;
+  // Zero-item outcomes leave the remaining quantity unchanged.
+  const mean = [0];
+  for (let need = 1; need <= target; need++) {
+    let before = 0;
+    for (let i = 1; i < need; i++) before += dist[i]*mean[need-i];
+    mean.push((1+before)/probability);
+  }
+  const powers = [dist];
+  const state = Array(target+1).fill(0);
+  state[0] = 1;
+  const counts = confidences.map(confidence => {
+    let index = powers.length-1;
+    while (powers[index][target] < confidence && index < 52) {
+      const step = powers[index];
+      powers.push(dropCombine(step,step,target));
+      index++;
+    }
+    if (powers[index][target] < confidence) return null;
+    let count = 0;
+    let incomplete = state;
+    for (; index >= 0; index--) {
+      const next = dropCombine(incomplete,powers[index],target);
+      if (next[target] < confidence) {
+        count += 2**index;
+        incomplete = next;
+      }
+    }
+    return count+1;
+  });
+  return {mean:mean[target],counts};
+}
+
 function dropEstimateMarkup(sources, xpFactor = 0) {
-  const field = (name,label,min,max) => '<label>' + label + ' <input type="number" inputmode="decimal" name="' + name +
-    '" min="' + min + '" max="' + max + '" step="any"></label>';
+  const field = (name,label,min,max,step='any') => '<label>' + label + ' <input type="number" inputmode="' +
+    (step === 1 ? 'numeric' : 'decimal') + '" name="' + name + '" min="' + min + '" max="' + max + '" step="' + step + '"></label>';
   const source = xpFactor ? '' : '<label>Source <select name="source">' +
     sources.map(({node,name},i) => moneyOption(i,node.name+' · '+name,0)).join('') +
     moneyOption('custom','Custom rates',sources.length ? 0 : 'custom') + '</select></label>';
   return '<form class="drop-estimate-form">' + source + '<div class="drop-estimate-fields">' +
-    field('min','Action time or minimum (s)',0,1000000000) +
+    field('min','Action time (s)',0,1000000000) +
     field('max','Maximum time (s)',0,1000000000) +
     field('success','Action success (%)',0,100) +
-    (xpFactor ? field('xp','XP per successful gain',0,1000000000) : field('chance','Drop on success (%)',0,100)) +
-    '</div><details><summary>Stages and failure delay</summary><div class="drop-estimate-fields">' +
-    field('stages','Successes per loot roll',1,1000) +
-    field('delay','Extra seconds after a failure',0,1000000000) +
-    '</div></details></form><p class="drop-estimate-basis"></p><div class="drop-estimate-result" aria-live="polite"></div>';
+    (xpFactor ? field('xp','XP per gain',0,1000000000) : field('chance','Drop chance (%)',0,100) +
+      field('perDrop','Items per drop',1,1000000,1) + field('quantity','Quantity wanted',1,250,1)) +
+    '</div></form><p class="drop-estimate-basis"></p><div class="drop-estimate-result" aria-live="polite"></div>';
 }
 
 function dropEstimateBind(sources, xpFactor = 0) {
@@ -119,68 +220,109 @@ function dropEstimateBind(sources, xpFactor = 0) {
   const form = section.querySelector('form'), result = section.querySelector('.drop-estimate-result');
   const basis = section.querySelector('.drop-estimate-basis');
   const source = form.elements.namedItem('source');
-  const fieldNames = ['min','max','success',xpFactor ? 'xp' : 'chance','stages','delay'];
-  const fields = Object.fromEntries(fieldNames.map(name=>[name,form.elements.namedItem(name)]));
-  fields.stages.step = '1';
-  let maxFollowsMin = true;
+  const names = ['min','max','success','chance','xp','perDrop','quantity'];
+  const fields = Object.fromEntries(names.map(name=>[name,form.elements.namedItem(name)]));
+  const read = name => !fields[name] || fields[name].value === '' ? null : Number(fields[name].value);
+  const confidences = [.5,.9,.95,.99];
+  let method, hasRange, usesSuccess, maxFollowsMin;
+  let lastKey, lastStats;
+
   function render() {
-    const valid = fieldNames.every(name=>fields[name].validity.valid);
-    if (!valid) {
-      result.innerHTML = '<p>Check that percentages are between 0 and 100, times are positive and successes per roll is a whole number.</p>';
+    const visible = names.map(name=>fields[name]).filter(field=>field && !field.disabled);
+    if (visible.some(field=>!field.validity.valid)) {
+      result.innerHTML = '<p>Check the input values. Quantity wanted must be a whole number from 1 to 250.</p>';
       return;
     }
-    const read = name => fields[name].value === '' ? null : Number(fields[name].value);
-    const duration = read('min'), end = read('max'), success = read('success');
-    const dropInput = read(xpFactor ? 'xp' : 'chance');
-    const q = dropInput == null ? null : Math.min(1,dropInput/(xpFactor||100));
-    const stages = read('stages') ?? 1, delay = read('delay') ?? 0;
-    if (success == null || q == null) {
-      result.innerHTML = xpFactor ? '<p>Enter XP gained in a single roll to calculate the odds.</p>' : '<p>Enter the action success and drop chances to calculate the odds.</p>';
+    const duration = read('min'), end = hasRange ? read('max') : null;
+    const success = usesSuccess ? read('success') : 100;
+    const target = xpFactor ? 1 : read('quantity');
+    const perDrop = method || xpFactor ? 1 : read('perDrop');
+    if (method?.tiers && duration == null) {
+      result.innerHTML = '<p>Enter your clear time to find the reward chance.</p>';
+      return;
+    }
+    const tier = method?.tiers?.find(tier=>tier.time/1000>=duration);
+    const rolls = method?.tiers ? tier?.rolls : method?.rolls;
+    const q = method?.tiers ? rolls?.[0]?.[0]?.p ?? 0 :
+      method?.p ?? (xpFactor ? Math.min(1,read('xp')/xpFactor) : (read('chance') ?? 0)/100);
+    if (success == null || target == null || perDrop == null || (!method && !q && read(xpFactor?'xp':'chance') == null)) {
+      result.innerHTML = '<p>Enter ' + (xpFactor ? 'the XP gained per roll' : 'the missing rates and quantity') + ' to calculate the odds.</p>';
       return;
     }
     if (success === 0 || q === 0) {
       result.innerHTML = '<p>With these rates the item cannot drop.</p>';
       return;
     }
+    if (method?.limit && target > method.limit * method.high) {
+      result.innerHTML = '<p>The base limit is '+number(method.limit)+' purchases. Choose another source for a larger quantity.</p>';
+      return;
+    }
     if ((duration != null && duration <= 0) || (end != null && (duration == null || end < duration))) {
       result.innerHTML = '<p>Enter a positive action time. Maximum time must be at least that long.</p>';
       return;
     }
-    const single = stages === 1, s = success/100;
-    const probability = single ? s*q : q;
-    const average = duration == null ? null : ((duration+(end ?? duration))/2+(1-s)*delay) * (single ? 1 : stages/s);
-    const variable = (end != null && end !== duration) || (s < 1 && (!single || delay > 0));
-    const rows = [0.5,0.9,0.95,0.99].map(confidence=>{
-      const count = dropEstimateAttempts(probability,confidence);
-      const time = count == null || average == null ? '—' : dropEstimateTime(count*average);
-      return [Math.round(confidence*100)+'%',count == null ? 'Beyond calculation range' : number(count),time];
-    });
-    const mean = average == null ? '' : '<p>Average time to first drop <strong>' + dropEstimateTime(average/probability) + '</strong></p>';
-    result.innerHTML = '<p>' + (single ? 'Chance per attempt' : 'Chance per completed loot roll') + ': <strong>' +
-      publicChanceDisplay(probability) + '</strong></p>' + mean +
-      table(['Chance to get at least one',single?'Attempts':'Completed loot rolls','Estimated time'],rows) +
-      '<p class="wiki-note">Each row gives the minimum number of independent attempts or rolls to hit that chance.' +
-      (variable ? ' Estimated times use the average action duration and expected failures.' : '') +
-      (average == null ? ' Add an action time to estimate the duration.' : '') + '</p>';
+    const stages = method?.stages ?? 1, s = success/100;
+    const successPerRoll = stages === 1 ? s : 1;
+    const stun = method?.node.type === 'ThievingRecipe' ? duration : 0;
+    const actionTime = duration == null ? null : (duration+(end ?? duration))/2;
+    const average = actionTime == null ? null : (actionTime+(1-s)*stun) * (stages === 1 ? 1 : stages/s);
+    const probability = q*successPerRoll;
+    const key = [source?.value,q,s,target,perDrop,tier?.time].join('/');
+    if (lastKey !== key) {
+      lastStats = dropQuantityStats(rolls ?? [[{p:q,low:perDrop,high:perDrop}]],target,successPerRoll,probability,confidences);
+      lastKey = key;
+    }
+    const {counts,mean} = lastStats;
+    const rows = counts.map((count,i)=>[Math.round(confidences[i]*100)+'%',
+      count == null ? 'Beyond calculation range' : number(count),
+      ...(average == null ? [] : [count == null ? '—' : dropEstimateTime(count*average)])]);
+    const goal = xpFactor ? 'unlock' : 'get '+number(target)+(target>1?' items':' item');
+    const chanceLabel = stages > 1 ? 'Chance per completed target' : usesSuccess ? 'Chance per attempt' :
+      'Chance '+(method?.name ?? (xpFactor ? 'per XP gain' : 'per action'));
+    const rollLabel = stages > 1 ? 'Completed targets' : ({Enemy:'Kills',Dungeon:'Clears',AgilityCourse:'Clears',Item:'Openings',
+      ShopPurchase:'Purchases',ItemUpgrade:'Upgrades',FarmingRecipe:'Harvests',RanchingAnimal:'Production cycles'})[method?.node.type] ??
+      (xpFactor ? 'XP gains' : 'Attempts');
+    result.innerHTML = '<p>' + escape(chanceLabel) + ': <strong>' + publicChanceDisplay(probability) + '</strong></p>' +
+      (average == null ? '' : '<p>Average time to ' + goal + ' <strong>' + dropEstimateTime(mean*average) + '</strong></p>') +
+      table([xpFactor ? 'Chance to unlock' : 'Chance to get at least '+number(target),rollLabel,
+        ...(average == null ? [] : ['Estimated time'])],rows) +
+      '<p class="wiki-note">Counts give the minimum independent rolls for each chance.' +
+      (average != null && ((end != null && end !== duration) || (s < 1 && (stun || stages > 1)))
+        ? ' Time estimates use the average duration of those rolls.' : '') +
+      (average == null && !fields.min.disabled ? ' Add an action time to estimate duration.' : '') + '</p>';
   }
+
   function useSource() {
-    const method = !source || source.value === 'custom' ? null : sources[Number(source.value)];
-    const averageTime = method?.min == null ? null : (method.min + (method.max ?? method.min)) / 2;
-    const values = method ? {...method,min:averageTime,max:averageTime,chance:method.p*100} : {success:100,stages:1,delay:0};
-    for (const name of fieldNames) fields[name].value = values[name] ?? '';
+    method = !source || source.value === 'custom' ? null : sources[Number(source.value)];
+    const type = method?.node.type;
+    const untimed = type === 'ShopPurchase' || type === 'ItemUpgrade';
+    hasRange = type === 'FishingRecipe' || (!method && !xpFactor);
+    usesSuccess = method ? method.success == null : !xpFactor;
+    const average = method?.min == null ? null : (method.min+(method.max ?? method.min))/2;
+    const values = {min:average,max:average,success:method ? method.success : 100,quantity:read('quantity') ?? 1,perDrop:1};
+    const enabled = {min:!untimed,max:hasRange,success:usesSuccess,chance:!method,perDrop:!method,xp:true,quantity:true};
+    for (const name of names) {
+      const field = fields[name];
+      if (!field) continue;
+      field.disabled = field.parentElement.hidden = !enabled[name];
+      field.value = values[name] ?? '';
+    }
     maxFollowsMin = true;
-    form.querySelector('details').open = Boolean(method && (method.stages>1 || method.delay>0));
-    basis.innerHTML = xpFactor ? 'One roll per eligible XP gain. Enter the XP actually awarded after bonuses. The chance is XP divided by ' + number(xpFactor) + '.'
-      : method ? 'Base drop chance ' + escape(method.name) + ' from ' + link(method.node,true) +
-        (method.max != null && method.max !== method.min ? '. Both times start at the base average of ' + number(averageTime) + ' s' : '') +
-        '. Enter the times and chances you see with your setup.' : 'Use the drop chance after any loot-table activation roll. Enter 100% success for actions that always reach the loot roll.';
+    basis.innerHTML = xpFactor ? 'Enter the XP actually awarded per eligible gain. The chance is XP divided by '+number(xpFactor)+'.'
+      : method ? 'Source: '+link(method.node,true)+'.'+
+        (method.stages > 1 ? ' One roll after '+number(method.stages)+' successful stages.' : '')+
+        (type === 'ThievingRecipe' ? ' This estimate adds one action’s worth of stun time per failure. In game, base stun is 2 s before modifiers.' : '')+
+        (type === 'FishingRecipe' && method.max !== method.min ? ' Both times start at the base average of '+number(average)+' s.' : '')+
+        (method.tiers ? ' Enter a representative clear time to select the reward tier.' : '')+
+        (untimed ? ' Counts transactions using base stack sizes. Time to gather the cost depends on your setup.' : ' Uses the recorded base stack sizes and drop rates.')
+      : 'For a source with no modeled rate, enter the final drop chance after any loot-table activation and the items awarded per drop.';
     render();
   }
-  if (source) source.addEventListener('change',useSource);
+  source?.addEventListener('change',useSource);
   form.addEventListener('input', event => {
     if (event.target === source) return;
     if (event.target === fields.max) maxFollowsMin = fields.max.value === '' || fields.max.value === fields.min.value;
-    if (event.target === fields.min && maxFollowsMin) fields.max.value = fields.min.value;
+    if (event.target === fields.min && maxFollowsMin && hasRange) fields.max.value = fields.min.value;
     render();
   });
   form.addEventListener('submit', event => event.preventDefault());

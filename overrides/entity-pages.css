@@ -5,4 +5,4 @@
 .drop-estimate-form input { inline-size:9rem; max-inline-size:100%; }
 .drop-estimate-form select { max-inline-size:100%; }
 .entity-v2 #drop-calculator { clear: both; }
-.drop-estimate-form details { margin-top:.65rem; }
+.drop-estimate-form label[hidden] { display:none; }
