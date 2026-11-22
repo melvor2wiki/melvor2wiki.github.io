@@ -48,6 +48,9 @@ marker='  const values = {\n    nome: n => n.name,'
 assert app.count(marker)==1
 app=app.replace(marker, '  const results = catalogUnique(matches, screen === "cerca" && !type);\n'+marker)
 app=app.replace('const brand = imageSource(visuals.logo);','const brand = "data:image/webp;base64,'+base64.b64encode((root/'overrides/logo-high-resolution.webp').read_bytes()).decode()+'";')
+favicon_override = 'document.getElementById("wiki-favicon").href = brand;'
+assert app.count(favicon_override) == 1, 'Unexpected favicon override'
+app=app.replace(favicon_override, 'if (location.protocol === "file:") ' + favicon_override)
 app=app.replace('const number = value => italian.format(value);','const number = value => polishNumber(value);')
 app=app.replace('Currency: "Currency", Prayer: "Prayer", MagicSpell: "Spell",',
     'Currency: "Currency", Prayer: "Prayer", MagicSpell: "Spell", Imbuement: "Magic Imbuement",')
@@ -201,6 +204,13 @@ print('Anonymous suggestion form configured; no email address or private key emb
 # Refresh only changed browser files after a deployment; keep the large data cache.
 html=out/'index.html'
 markup=html.read_text(encoding='utf-8')
+placeholder = '<link id="wiki-favicon" rel="icon" type="image/webp">'
+assert markup.count(placeholder) == 1, 'Unexpected favicon markup'
+markup = markup.replace(placeholder,
+    '<link id="wiki-favicon" rel="icon" href="favicon.ico" sizes="16x16 32x32 48x48 64x64 128x128 256x256">\n'
+    '  <link rel="apple-touch-icon" href="favicon.png">')
+for filename in ('favicon.ico','favicon.png'):
+    (out/filename).write_bytes((root/'overrides'/filename).read_bytes())
 for filename in ['app.js','config.js','style.css','data.js']:
     version=hashlib.sha256((out/filename).read_bytes()).hexdigest()[:12]
     markup=markup.replace('"'+filename+'"','"'+filename+'?v='+version+'"')
