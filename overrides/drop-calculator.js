@@ -1,3 +1,11 @@
+function dropRateLabels() {
+  return {
+    common:'Common loot chance (%)', rare:'Rare loot chance (%)', fish:'Fish catch chance (%)',
+    specialFlat:'Special chance bonus (percentage points)', specialRelative:'Special chance increase (%)',
+    secondSpecial:'Second special roll chance (%)', itemRate:'Item drop chance (%)'
+  };
+}
+
 function dropEstimateMethod(ref) {
   const {from: node,path,parent} = ref, [root] = path, d = node.data;
   const low = parent?.MinQuantity ?? parent?.Quantity ?? (node.type === 'ItemUpgrade' ? d.QuantityPerUpgrade : 1);
@@ -5,7 +13,7 @@ function dropEstimateMethod(ref) {
   if (!Number.isSafeInteger(low) || !Number.isSafeInteger(high) || low < 0 || high < low || high === 0) return null;
   const {p: indexed,basis} = lootReference(ref);
   let p = indexed, name = basis || 'per action', roll = path.join('/'), trigger = roll;
-  let min = null, max = null, success = 100, stages = 1;
+  let min = null, max = null, success = 100, stages = 1, rate;
   const tableIndex = path.indexOf('ItemTables');
   if (node.type === 'Enemy' || node.type === 'Dungeon' || node.type === 'Item') {
     if (node.type === 'Item' && path[1] !== 'MelvorBase:Openable') return null;
@@ -22,17 +30,32 @@ function dropEstimateMethod(ref) {
     stages = completion ? Math.max(1,d.Stages || 1) : 1;
     min = d.BaseInterval / 1000;
     success = null;
+    if (!completion) {
+      const common = root === 'CommonDropTable';
+      rate = {field:common?'common':'rare', base:d[common?'BaseCommonLootChance':'BaseRareLootChance'],
+        weight:lootWeightedChance(d[root],parent)};
+    }
   } else if (node.type === 'FishingRecipe') {
     if (!['RandomProducts','SpecialProducts','JunkItem'].includes(root)) return null;
     name = 'per cast';
     trigger = name;
     roll = root === 'SpecialProducts' ? 'special catch' : 'main catch';
     if (root === 'JunkItem') p = 1 - (d.BaseFishChance ?? d.FishChance);
+    if (root !== 'SpecialProducts') {
+      const junk = root === 'JunkItem';
+      rate = {field:'fish',base:d.BaseFishChance ?? d.FishChance,
+        weight:junk ? 1 : lootWeightedChance(d[root],parent), invert:junk};
+    }
     min = d.BaseMinInterval / 1000;
     max = d.BaseMaxInterval / 1000;
   } else if (node.type === 'MiningRecipe') {
-    if (root !== 'Product' && root !== 'RandomProductsPerHit') return null;
-    if (root === 'Product') {
+    if (['BarItem','StoneItem','EssenceItem'].includes(root)) {
+      name = root === 'BarItem' ? 'per completed rock' : 'per hit';
+      min = root === 'BarItem' ? payload.guides?.skills?.Mining?.rankings?.find(row=>row.id===node.id)?.seconds : d.BaseInterval/1000;
+      p = 0;
+      rate = {field:'itemRate',base:0,weight:1};
+    } else if (root !== 'Product' && root !== 'RandomProductsPerHit') return null;
+    else if (root === 'Product') {
       name = 'per completed rock';
       min = payload.guides?.skills?.Mining?.rankings?.find(row => row.id === node.id)?.seconds ?? null;
     } else {
@@ -71,14 +94,21 @@ function dropEstimateMethod(ref) {
       min = d.BaseInterval / 1000;
     }
   }
-  if (!(p > 0 && p <= 1)) return null;
+  if (Number.isFinite(p) && !rate &&
+      ((node.type === 'MiningRecipe' || node.type === 'WoodcuttingRecipe') && /^RandomProductsPer/.test(root) ||
+        (node.type === 'FiremakingRecipe' || node.type === 'HuntingAnimal') && root === 'Products')) {
+    rate = {field:'itemRate',base:p,weight:1};
+  }
+  if (!(p > 0 && p <= 1) && !(p === 0 && rate && (rate.field === 'fish' || node.type === 'MiningRecipe'))) return null;
   if (!['Enemy','Dungeon','Item','ThievingRecipe','FishingRecipe'].includes(node.type)) {
     trigger = name;
     roll = path.slice(0,-1).join('/');
   }
   const timed = root === 'TimedCompletionRewards' ? d[root][path[1]].TimeInMS : null;
   return {node,p,min:Number.isFinite(min) && min>0 ? min : null,max:Number.isFinite(max) && max>0 ? max : null,timed,
-    success,stages,name,roll,trigger,low,high,limit:node.type === 'ShopPurchase' ? d.DefaultBuyLimit : null};
+    success,stages,name,roll,trigger,low,high,rate,
+    specialId:node.type === 'FishingRecipe' && root === 'SpecialProducts' ? parent?.Item : null,
+    limit:node.type === 'ShopPurchase' ? d.DefaultBuyLimit : null};
 }
 
 function dropEstimateSources(refs) {
@@ -93,7 +123,8 @@ function dropEstimateSources(refs) {
     if (!buckets.has(trigger)) buckets.set(trigger,{...method,rolls:new Map()});
     const bucket = buckets.get(trigger);
     if (!bucket.rolls.has(method.roll)) bucket.rolls.set(method.roll,[]);
-    bucket.rolls.get(method.roll).push({p:method.p,low:method.low,high:method.high,timed:method.timed});
+    bucket.rolls.get(method.roll).push({p:method.p,low:method.low,high:method.high,timed:method.timed,
+      rate:method.rate,specialId:method.specialId});
   }
   const sources = [...buckets.values()].map(({rolls,...method}) => {
     method.rolls = [...rolls.values()];
@@ -109,14 +140,49 @@ function dropEstimateSources(refs) {
       method.p = method.rolls[0][0].p;
       return method;
     }
-    const probabilities = method.rolls.map(entries => Math.min(1,entries.reduce((sum,row) =>
-      sum + row.p * (row.low ? 1 : row.high/(row.high+1)),0)));
-    method.p = probabilities.length === 1 ? probabilities[0] : -Math.expm1(
-      probabilities.reduce((sum,p) => sum + Math.log1p(-p),0));
+    method.p = dropRollChance(method.rolls);
+    method.rates = Object.fromEntries(method.rolls.flat().flatMap(row => row.rate ? [[row.rate.field,row.rate.base]] : []));
+    if (method.rolls.flat().some(row=>row.specialId)) Object.assign(method.rates,
+      {specialFlat:0,specialRelative:0,secondSpecial:0});
     return method;
   });
-  return sources.sort((a,b) => Number(a.p===1)-Number(b.p===1) ||
+  return sources.sort((a,b) => Number(a.p===0)-Number(b.p===0) || Number(a.p===1)-Number(b.p===1) ||
     collator.compare(a.node.name,b.node.name) || collator.compare(a.name,b.name));
+}
+
+function dropRollChance(rolls) {
+  const probabilities = rolls.map(entries => Math.min(1,entries.reduce((sum,row) =>
+    sum + row.p * (row.low ? 1 : row.high/(row.high+1)),0)));
+  return probabilities.length === 1 ? probabilities[0] : -Math.expm1(
+    probabilities.reduce((sum,p) => sum + Math.log1p(-p),0));
+}
+
+function dropAdjustedRolls(method, rates) {
+  return method.rolls.map(entries => {
+    const specialId = entries[0]?.specialId;
+    if (specialId) {
+      const products = (method.node.data.SpecialProducts || []).map(row=>({
+        ...row, chance:Math.min(1,Math.max(0,row.Chance*(1+rates.specialRelative)+rates.specialFlat))
+      })).sort((a,b)=>a.chance-b.chance);
+      let remaining = 1, picked = 0;
+      for (const row of products) {
+        if (row.Item === specialId) picked += remaining*row.chance;
+        remaining *= 1-row.chance;
+      }
+      const quantity = entries[0].low;
+      const secondTarget = rates.secondSpecial*picked;
+      return [
+        {p:picked*(1-secondTarget)+Math.max(0,1-remaining-picked)*secondTarget,low:quantity,high:quantity},
+        {p:picked*secondTarget,low:2*quantity,high:2*quantity}
+      ];
+    }
+    return entries.map(row=>{
+      if (!row.rate) return row;
+      const {field,weight,invert} = row.rate;
+      const value = rates[field];
+      return {...row,p:(invert ? 1-value : value)*weight};
+    });
+  });
 }
 
 function dropEstimateAttempts(probability, confidence) {
@@ -206,13 +272,15 @@ function dropEstimateMarkup(sources, xpFactor = 0) {
   const source = xpFactor ? '' : '<label>Source <select name="source">' +
     sources.map(({node,name},i) => moneyOption(i,node.name+' · '+name,0)).join('') +
     moneyOption('custom','Custom rates',sources.length ? 0 : 'custom') + '</select></label>';
+  const inputs = xpFactor ? '' : Object.entries(dropRateLabels()).map(([name,label]) =>
+    field(name,label,name==='specialFlat'||name==='specialRelative' ? -100 : 0,name==='specialRelative' ? 100000 : 100)).join('');
   return '<form class="drop-estimate-form">' + source + '<div class="drop-estimate-fields">' +
     field('min','Action time (s)',0,1000000000) +
     field('max','Maximum time (s)',0,1000000000) +
     field('success','Action success (%)',0,100) +
     (xpFactor ? field('xp','XP per gain',0,1000000000) : field('chance','Drop chance (%)',0,100) +
       field('perDrop','Items per drop',1,1000000,1) + field('quantity','Quantity wanted',1,250,1)) +
-    '</div></form><p class="drop-estimate-basis"></p><div class="drop-estimate-result" aria-live="polite"></div>';
+    inputs + '</div></form><p class="drop-estimate-basis"></p><div class="drop-estimate-result" aria-live="polite"></div>';
 }
 
 function dropEstimateBind(sources, xpFactor = 0) {
@@ -220,7 +288,7 @@ function dropEstimateBind(sources, xpFactor = 0) {
   const form = section.querySelector('form'), result = section.querySelector('.drop-estimate-result');
   const basis = section.querySelector('.drop-estimate-basis');
   const source = form.elements.namedItem('source');
-  const names = ['min','max','success','chance','xp','perDrop','quantity'];
+  const names = ['min','max','success','chance','xp','perDrop','quantity',...Object.keys(dropRateLabels())];
   const fields = Object.fromEntries(names.map(name=>[name,form.elements.namedItem(name)]));
   const read = name => !fields[name] || fields[name].value === '' ? null : Number(fields[name].value);
   const confidences = [.5,.9,.95,.99];
@@ -242,9 +310,11 @@ function dropEstimateBind(sources, xpFactor = 0) {
       return;
     }
     const tier = method?.tiers?.find(tier=>tier.time/1000>=duration);
-    const rolls = method?.tiers ? tier?.rolls : method?.rolls;
-    const q = method?.tiers ? rolls?.[0]?.[0]?.p ?? 0 :
-      method?.p ?? (xpFactor ? Math.min(1,read('xp')/xpFactor) : (read('chance') ?? 0)/100);
+    const rateFields = Object.keys(method?.rates || {});
+    const rates = Object.fromEntries(rateFields.map(name=>[name,(read(name) ?? method.rates[name]*100)/100]));
+    const rolls = method?.tiers ? tier?.rolls : rateFields.length ? dropAdjustedRolls(method,rates) : method?.rolls;
+    const q = method ? (rolls ? dropRollChance(rolls) : 0) :
+      xpFactor ? Math.min(1,read('xp')/xpFactor) : (read('chance') ?? 0)/100;
     if (success == null || target == null || perDrop == null || (!method && !q && read(xpFactor?'xp':'chance') == null)) {
       result.innerHTML = '<p>Enter ' + (xpFactor ? 'the XP gained per roll' : 'the missing rates and quantity') + ' to calculate the odds.</p>';
       return;
@@ -267,7 +337,7 @@ function dropEstimateBind(sources, xpFactor = 0) {
     const actionTime = duration == null ? null : (duration+(end ?? duration))/2;
     const average = actionTime == null ? null : (actionTime+(1-s)*stun) * (stages === 1 ? 1 : stages/s);
     const probability = q*successPerRoll;
-    const key = [source?.value,q,s,target,perDrop,tier?.time].join('/');
+    const key = [source?.value,q,s,target,perDrop,tier?.time,...Object.values(rates)].join('/');
     if (lastKey !== key) {
       lastStats = dropQuantityStats(rolls ?? [[{p:q,low:perDrop,high:perDrop}]],target,successPerRoll,probability,confidences);
       lastKey = key;
@@ -301,6 +371,10 @@ function dropEstimateBind(sources, xpFactor = 0) {
     const average = method?.min == null ? null : (method.min+(method.max ?? method.min))/2;
     const values = {min:average,max:average,success:method ? method.success : 100,quantity:read('quantity') ?? 1,perDrop:1};
     const enabled = {min:!untimed,max:hasRange,success:usesSuccess,chance:!method,perDrop:!method,xp:true,quantity:true};
+    for (const [name,rate] of Object.entries(method?.rates || {})) {
+      enabled[name] = true;
+      values[name] = Number((rate*100).toPrecision(12));
+    }
     for (const name of names) {
       const field = fields[name];
       if (!field) continue;
@@ -314,7 +388,10 @@ function dropEstimateBind(sources, xpFactor = 0) {
         (type === 'ThievingRecipe' ? ' This estimate adds one action’s worth of stun time per failure. In game, base stun is 2 s before modifiers.' : '')+
         (type === 'FishingRecipe' && method.max !== method.min ? ' Both times start at the base average of '+number(average)+' s.' : '')+
         (method.tiers ? ' Enter a representative clear time to select the reward tier.' : '')+
-        (untimed ? ' Counts transactions using base stack sizes. Time to gather the cost depends on your setup.' : ' Uses the recorded base stack sizes and drop rates.')
+        (untimed ? ' Counts transactions using base stack sizes. Time to gather the cost depends on your setup.' : ' Uses the recorded base stack sizes.')+
+        (method.rates?.common != null || method.rates?.rare != null ? ' Enter the loot-table chance after bonuses. Item odds within each table are applied automatically.' : '')+
+        (method.rates?.fish != null ? ' Enter the effective fish chance, including any junk reroll.' : '')+
+        (method.rates?.secondSpecial != null ? ' The second special roll can happen only if the first yields a special item.' : '')
       : 'For a source with no modeled rate, enter the final drop chance after any loot-table activation and the items awarded per drop.';
     render();
   }

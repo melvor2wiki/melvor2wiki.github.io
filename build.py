@@ -135,6 +135,10 @@ app+='\n'+(root/'overrides/drop-odds.js').read_text(encoding='utf-8')
 app+='\n'+(root/'overrides/drop-calculator.js').read_text(encoding='utf-8')
 app+='\n'+(root/'overrides/training-route.js').read_text(encoding='utf-8')
 app+='\n'+(root/'overrides/mining-training.js').read_text(encoding='utf-8')
+app+='\n'+(root/'overrides/analytics.js').read_text(encoding='utf-8')
+community_notice = 'or explore the <a href="#/guides">skill training guides</a>.</p>'
+assert app.count(community_notice) == 1, 'Unexpected community section markup'
+app = app.replace(community_notice, community_notice + '<p>The online wiki records daily totals for visits and pageviews by section.</p>')
 other_nav = '    navGroup("quests"), navGroup("shops"), navGroup("mastery"), navGroup("pets"),\n'
 assert app.count(other_nav) == 1
 app = app.replace(other_nav, other_nav + """    moneyNavLink(),
@@ -157,6 +161,7 @@ html.write_text(markup,encoding='utf-8')
 feedback=json.loads((root/'feedback-config.json').read_text(encoding='utf-8-sig'))
 assert re.fullmatch(r'https://ijmztvsjdzypvxnlicbf\.supabase\.co/functions/v1/submit-feedback',feedback['suggestionEndpoint']), 'Invalid public form endpoint'
 config={'issueRepository':os.environ.get('GITHUB_REPOSITORY','melvor2wiki/melvor2wiki.github.io'),**feedback}
+config['analytics']=json.loads((root/'analytics-config.json').read_text(encoding='utf-8'))
 (out/'config.js').write_text('window.WIKI_CONFIG = '+json.dumps(config)+';\n',encoding='utf-8')
 print('Anonymous suggestion form configured; no email address or private key embedded')
 
