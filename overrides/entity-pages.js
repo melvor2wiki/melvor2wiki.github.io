@@ -208,7 +208,8 @@ function publicItem(n) {
   if (sourceBody.length) sections.push({id:'sources',title:'Item Sources',children:sourceChildren,body:sourceBody.join('')});
   if (uses.length) sections.push({id:'uses',title:'Uses',body:table(['Product / Action','Skill','Requirements','XP','Ingredients / Cost'],uses.map(r => {
     const a=r.from,d=a.data, products=d.Products || (d.Product ? [typeof d.Product === 'string' ? {Item:d.Product}:d.Product]:[]);
-    return [products.length?publicItems(products,a):link(a,true),publicSkills(a),requirements(a),numericCell(d.BaseExperience),wikiCosts(d.Ingredients || d.Costs || {Items:[r.parent]},a)];
+    return [products.length?publicItems(products,a):link(a,true),publicSkills(a),requirements(a),numericCell(d.BaseExperience),
+      wikiCosts(d.Ingredients || d.Costs || {Items:d.RuneCosts || [r.parent]},a)];
   }),true)});
   const open=cap['MelvorBase:Openable'];
   if (open && (open.AlwaysDrops?.length || open.DropTable?.length)) sections.push({id:'contents',title:'Contents',body:

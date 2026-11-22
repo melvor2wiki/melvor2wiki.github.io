@@ -49,6 +49,37 @@ assert app.count(marker)==1
 app=app.replace(marker, '  const results = catalogUnique(matches, screen === "cerca" && !type);\n'+marker)
 app=app.replace('const brand = imageSource(visuals.logo);','const brand = "data:image/webp;base64,'+base64.b64encode((root/'overrides/logo-high-resolution.webp').read_bytes()).decode()+'";')
 app=app.replace('const number = value => italian.format(value);','const number = value => polishNumber(value);')
+app=app.replace('Currency: "Currency", Prayer: "Prayer", MagicSpell: "Spell",',
+    'Currency: "Currency", Prayer: "Prayer", MagicSpell: "Spell", Imbuement: "Magic Imbuement",')
+app=app.replace('n => /Spell|Prayer|CombatStat|Attack|Effect|CombatPassive/.test(n.type)', 'n => catalogCombatType(n.type)')
+app=app.replace('SpellBook: ["SpellBook"],', 'SpellBook: ["SpellBook"], Book: ["SpellBook"], Imbuements: ["Imbuement"],')
+app=app.replace('typeName(node.type) + " " +\n    [...(owners.get(node.key)',
+    'typeName(node.type) + (node.type === "Imbuement" ? " imbuements " : " ") +\n    [...(owners.get(node.key)',1)
+app=app.replace('const sourcePath = ', '''for (const [skillId, types] of Object.entries(catalogSkillTypes())) {
+  const skill = byKey.get("Skill/" + namespaced(skillId));
+  if (!skill) continue;
+  for (const type of types) for (const node of byType.get(type) || []) {
+    if (!owners.has(node.key)) owners.set(node.key, new Set());
+    owners.get(node.key).add(skill);
+  }
+}
+const sourcePath = ''', 1)
+app=app.replace('function dataRows(records) {', 'function dataRows(records, reference = false) {')
+app=app.replace('sortValue(link(node, true), node.name),', 'sortValue(reference ? catalogDirectoryLink(node) : link(node, true), node.name),', 1)
+app=app.replace('const results = catalogUnique(matches, screen === "cerca" && !type);',
+    'const results = screen === "famiglia" ? matches : catalogUnique(matches, screen === "cerca" && !type);')
+app=app.replace('dataRows(results.slice((page - 1) * pageSize, page * pageSize))',
+    'dataRows(results.slice((page - 1) * pageSize, page * pageSize), screen === "famiglia")')
+app=app.replace("n.type === 'Enemy' || actionTypes.has(n.type) ||", "n.type === 'Enemy' || actionTypes.has(n.type) || catalogFeatured(n.type) ||",1)
+app=app.replace('if (name === "Magic") sections.push(...wikiSpellSections());',
+    'if (name === "Magic") sections.push(...wikiSpellSections(), ["imbuements", "Magic Imbuements", catalogImbuements(false)]);')
+app=app.replace('  wikiReferenceOrder(name, sections);', '''  const reference = catalogSkillReference(name);
+  if (reference) sections.push(["skill-reference", "Related Game Data", reference]);
+  wikiReferenceOrder(name, sections);''',1)
+app=app.replace('const coreRecords = name === "Magic" ? byType.get("MagicSpell") || [] :',
+    'const coreRecords = name === "Magic" ? [...(byType.get("MagicSpell") || []), ...catalogImbuementNodes(true)] :')
+app=app.replace('    \'<a href="#/guides">Skill Training Guides</a>\',\n  ]);',
+    '    \'<a href="#/guides">Skill Training Guides</a>\',\n    \'<a href="#/famiglia?id=Imbuement">Magic Imbuements</a>\',\n    \'<a href="#/famiglie">Game Data Index</a>\',\n  ]);',1)
 # Keep all loot views on the same probability model.
 for name, marker in [
     ('wikiFish', 'function wikiMiningRocks('),
@@ -102,6 +133,7 @@ app = app.replace('"Sell Price per Unit", "Base Chance"], entries.map',
 start = app.index('function publicDetail(')
 end = app.index('function publicGuides(', start)
 detail = app[start:end]
+detail = detail.replace('n=publicCanonical(n);', 'n=publicCanonical(n);\n  if(catalogDetail(n))return true;',1)
 detail = detail.replace('let out=publicHead(n);', 'let out="";')
 detail = re.sub(r"  const req=requirements\(n\);[^\n]*\n\s*if\(d\.BaseExperience[^\n]*\n", '', detail, count=1)
 detail = detail.replace("if(properties.length && n.type!=='MasteryGuildRank')",
@@ -127,6 +159,7 @@ for original, saved in [('link','formatV2OriginalLink'),('icon','formatV2Origina
     app=app.replace(marker,'function '+saved+'(',1)
 for module in ['wiki-format','training-guides','entity-pages','skill-cleanup','training-reader','layout-polish']:
     app+='\n'+(root/'overrides'/f'{module}.js').read_text(encoding='utf-8-sig')
+app+='\n'+(root/'overrides/catalog-coverage.js').read_text(encoding='utf-8')
 app+='\n'+(root/'overrides/money-guide.js').read_text(encoding='utf-8')
 app+='\n'+(root/'overrides/money-supply.js').read_text(encoding='utf-8-sig')
 app+='\n'+(root/'overrides/money-combos.js').read_text(encoding='utf-8-sig')

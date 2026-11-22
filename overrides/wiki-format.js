@@ -145,6 +145,20 @@ function formatV2Pets() {
     wikiSection('pet-list', 'Pet List', table(['Pet', 'Unlock Conditions', 'Effect'], pets.map(p => [link(p, true), wikiPetChance(p), wikiAllBonusText(p.data.Bonuses, p)]), true));
 }
 function publicRoute(screen, params) {
+  if (screen === 'famiglie') {
+    catalogIndex();
+    return true;
+  }
+  if (screen === 'famiglia' && params.get('id') === 'Imbuement') {
+    main.innerHTML = '<h1>Magic Imbuements</h1>' + catalogImbuements(true);
+    return true;
+  }
+  if (screen === 'record') {
+    const node = byKey.get(params.get('id'));
+    if (!node) return false;
+    catalogRecord(node,true);
+    return true;
+  }
   if (screen === 'idle') {idlePage(params);return true;}
   if (screen === 'money') {moneyGuide(params);return true;}
   if (screen === 'pets' || ((screen === 'categoria' || screen === 'famiglia') && /^(pets|Pet)$/.test(params.get('id')))) {formatV2Pets();return true;}
