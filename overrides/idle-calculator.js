@@ -35,6 +35,36 @@ function idleAutoEatRates() {
   return [0, .25, level2, level2 + upgrade(3)];
 }
 
+function idleSlayerPools(areas) {
+  const combatAreas = new Map(areas.filter(area=>area.node.type==='CombatArea').map(area=>[area.node.id,area]));
+  const configured = game.EntityConfig[namespaced('Slayer')]?.SlayerMasters || [];
+  return configured.map(entry=>publicNode('SlayerMaster',entry.Id ?? entry)).filter(Boolean).map(node=>{
+    const pool = new Map();
+    let missing = !node.data.Areas?.length, rolls = 0;
+    // The game adds every eligible area entry to the roll and uses the first
+    // matching area when Auto Slayer selects the rolled target.
+    for (const id of node.data.Areas || []) {
+      const area = combatAreas.get(id);
+      if (!area || area.incomplete) {
+        missing = true;
+        continue;
+      }
+      for (const enemyId of area.node.data.Enemies) {
+        const enemy = publicNode('Enemy',enemyId);
+        if (!enemy) {
+          missing = true;
+          continue;
+        }
+        if (enemy.data.Requirements?.some(req=>bare(req.Type)==='DemoLocked')) continue;
+        if (!pool.has(enemy.id)) pool.set(enemy.id,{node:enemy,area:area.node,weight:0});
+        pool.get(enemy.id).weight++;
+        rolls++;
+      }
+    }
+    return {node,targets:[...pool.values()],rolls,missing};
+  });
+}
+
 function idleRoundEven(value) {
   const lower = Math.floor(value);
   return value - lower === .5 ? lower + lower % 2 : Math.round(value);
@@ -246,7 +276,8 @@ function idlePage(params) {
   const {areas} = idleData();
   const tiers = idleAutoEatRates(), styles = ['Melee', 'Ranged', 'Magic'];
   const enemies = byType.get('Enemy') || [];
-  const masters = byType.get('SlayerMaster') || [];
+  const slayerPools = idleSlayerPools(areas);
+  const masters = slayerPools.map(pool=>pool.node);
   const all = 'All Monsters', slayer = 'Slayer Masters';
   const groups = ['Combat Areas', 'Slayer Zones', slayer, 'Dark Areas', 'Standard Dungeons', all, 'Quest Encounters'];
   const legacyGroups = new Map([['slayer areas', 'Slayer Zones'], ['dungeons', 'Standard Dungeons']]);
@@ -266,7 +297,7 @@ function idlePage(params) {
   const query = (params.get('q') || '').trim().slice(0, 80);
   const locationsFor = group => areas.filter(area => !area.placeholder && (!group || group === all || area.category === group));
   const locationOptions = (group, selected) => [
-    moneyOption('', 'All locations', selected),
+    moneyOption('', group === slayer ? 'All Slayer Masters' : 'All locations', selected),
     ...(group === slayer ? masters : [...locationsFor(group).map(area => area.node), ...(!group ? masters : [])])
       .map(node => moneyOption(node.id, node.name, selected))
   ].join('');
@@ -359,17 +390,17 @@ function idlePage(params) {
     const thresholdText = 'Auto Eat triggers at ' + number(idleRoundEven(profile.hp * profile.threshold)) + ' HP.';
     if (threshold.textContent !== thresholdText) threshold.textContent = thresholdText;
     const seen = new Map();
-    const check = (node, area) => {
-      const key = node.key + '/' + (area?.key || '');
-      if (!seen.has(key)) {
+    const check = (node, area, singleTarget = false) => {
+      const key = node.key + '/' + (area?.key || ''), cacheKey = key + '/' + singleTarget;
+      if (!seen.has(cacheKey)) {
         if (!encounters.has(key)) encounters.set(key, idleEncounter(node, area));
-        const result = idleEvaluate(encounters.get(key),profile);
+        const encounter = encounters.get(key), result = idleEvaluate(encounter,profile);
         const info = coverage.get(area?.key);
         if (info?.missing) result.unresolved.add('Incomplete encounter data');
-        if (info?.mixedEffects) result.unresolved.add('Effects may carry between different enemies');
-        seen.set(key, {node, area, result});
+        if (!singleTarget && info?.mixedEffects) result.unresolved.add('Effects may carry between different enemies');
+        seen.set(cacheKey, {node, area, result, lingers:encounter.lingers});
       }
-      return seen.get(key);
+      return seen.get(cacheKey);
     };
     const matches = ({node, area}) => !query || [node.name, area?.name].some(name => name?.toLowerCase().includes(query));
     const visible = row => !status || resultKey(row) === status;
@@ -380,7 +411,47 @@ function idlePage(params) {
       badge(resultKey(row), [...row.result.unresolved])
     ]), true) : empty;
     const areaRows = area => area.enemies.map(id => publicNode('Enemy',id)).filter(Boolean).map(node => check(node,area.node));
+    function renderSlayer() {
+      const pools = slayerPools.filter(({node})=>!selected || node.id===selected).map(pool=>{
+        const rows = pool.targets.map(target=>({...check(target.node,target.area,true),weight:target.weight}));
+        const reasons = new Set(rows.flatMap(row=>[...row.result.unresolved]));
+        if (pool.missing || !rows.length) reasons.add('Incomplete task pool data');
+        if (rows.length>1 && rows.some(row=>row.lingers)) reasons.add('Effects may carry between Auto Slayer tasks');
+        const key = reasons.size ? 'review' : rows.every(row=>row.result.fits) ? 'fit' : 'exceeds';
+        const nameMatches = Boolean(query && pool.node.name.toLowerCase().includes(query));
+        return {...pool,rows,reasons,key,nameMatches};
+      }).filter(pool=>!query || pool.nameMatches || pool.rows.some(matches));
+      const shown = pools.filter(pool=>selected || !status || pool.key===status);
+      const summary = shown.length ? table(['Slayer Master','Requirements','Possible Targets','Auto Slayer'],
+        shown.map(({node,targets,key,reasons})=>[
+          '<a class="row-link" href="' + escape(route('idle',{...urlParams,group:slayer,target:node.id})) + '">' +
+            icon(node) + escape(node.name) + '</a>',
+          requirements(node), numericCell(targets.length), badge(key,[...reasons])
+        ]),true) : empty;
+      const focused = selected && pools[0];
+      let details = '';
+      if (focused) {
+        const byArea = new Map();
+        for (const row of focused.rows.filter(row=>(focused.nameMatches || matches(row)) && visible(row))) {
+          if (!byArea.has(row.area)) byArea.set(row.area,[]);
+          byArea.get(row.area).push(row);
+        }
+        details = '<h3>' + escape(focused.node.name) + ' task pool</h3>' +
+          '<p>Base task chances are shown before personal blocks. Each row checks repeated fights against that target in its assigned area.</p>' +
+          (byArea.size ? [...byArea].map(([area,rows])=>{
+            const access = entityV2Requirements(area);
+            return '<h4>' + link(area,true) + '</h4>' +
+              (access==='—' ? '' : '<div class="wiki-note">Area access ' + access + '</div>') +
+              table(['Task Target','Task Chance','Max damage/event','Result'],rows.map(row=>[
+                link(row.node,true),lootChanceCell(row.weight/focused.rolls),
+                damageCell(row.result.unresolved.size ? null : row.result.worst),badge(resultKey(row),[...row.result.unresolved])
+              ]),true);
+          }).join('') : empty);
+      }
+      return wikiSection(sectionId(slayer),slayer,summary+details);
+    }
     function renderCategory(name) {
+      if (name === slayer) return renderSlayer();
       if (name === all) {
         // A monster found in several places uses its most restrictive matching location.
         const risk = row => row.result.unresolved.size ? Infinity : row.result.worst?.value ?? Infinity;
@@ -392,10 +463,7 @@ function idlePage(params) {
         return wikiSection(sectionId(name),name,monsterTable(rows));
       }
       const categoryAreas = locationsFor(name);
-      const collections = name === slayer
-        ? masters.map(node => ({node, areas: areas.filter(area => (node.data.Areas ?? []).includes(area.node.id)),
-          missing: !node.data.Areas?.length || node.data.Areas.some(id => !areas.some(area=>area.node.id===id))}))
-        : categoryAreas.map(area => ({node: area.node,areas:[area],missing:coverage.get(area.node.key).missing}));
+      const collections = categoryAreas.map(area => ({node: area.node,areas:[area],missing:coverage.get(area.node.key).missing}));
       const ranked = collections.filter(({node}) => !selected || node.id === selected).map(({node,areas,missing}) => {
         const rows = areas.flatMap(areaRows);
         const keys = rows.map(resultKey);
@@ -406,7 +474,7 @@ function idlePage(params) {
         return {node, rows, key, nameMatches, reasons};
       }).filter(row => !query || row.nameMatches || row.rows.some(matches));
       const summaries = ranked.filter(row => !status || row.key === status);
-      const summary = summaries.length ? table([name === slayer ? 'Slayer Master' : 'Location','Max damage/event','Result'],
+      const summary = summaries.length ? table(['Location','Max damage/event','Result'],
         summaries.map(({node, rows, key, reasons}) => {
           const worst = rows.reduce((max,row) => {
             const hit = row.result.worst;
