@@ -75,14 +75,13 @@ function idleEncounter(enemy, area) {
   const stats = payload.monsters.enemies[bare(enemy.id)];
   const unresolved = new Set(), immunities = new Set();
   const totals = {Enemy: {}, Player: {}};
-  const attacks = [], effects = new Map(), effectDamage = new Map(), visited = new Set();
-  let lingers = false;
+  const attacks = [], effects = new Map(), effectDamage = new Map(), carryMods = new Map(), visited = new Set();
   const enemyMods = new Set(['FlatMaxHit', 'PercentMaxHit', 'FlatPowerRating', 'PercentPowerRating', 'PercentDamageDealt',
     'FlatCriticalHitChance', 'FlatCriticalHitMultiplier']);
   const playerMods = new Set(['FlatProtectionRating', 'PercentProtectionRating', 'FlatResistance', 'PercentResistance',
     'ResistanceCombatTriangle', 'PercentDamageTaken', 'PercentDamageTakenFrom', 'PercentDamageTakenFromAttacks',
     'FlatMaxHitpoints', 'PercentMaxHitpoints', 'FlatAutoEatThreshold', 'FlatAutoEatLimit']);
-  function addMod(mod, side, scale, activeEffect = false) {
+  function addMod(mod, side, scale, carryKey) {
     if (!mod?.Stat) {
       unresolved.add('Missing modifier data');
       return;
@@ -99,7 +98,7 @@ function idleEncounter(enemy, area) {
       const stat = bare(mod.LocalContext?.CombatStat || '');
       if (side === 'Player' && /^(Armour|)$/.test(stat) && (value < 0 || mod.FromContext || mod.Scaling)) {
         totals.Player.ArmourBroken = 1;
-        if (activeEffect) lingers = true;
+        if (carryKey) carryMods.set(carryKey,{name:'ArmourBroken',value:1});
       }
       if (side === 'Enemy' && /StrengthBonus|DamageBonus|SpellMaxHit|^$/.test(stat) &&
           (value > 0 || mod.FromContext || mod.Scaling)) unresolved.add('Enemy combat stat scaling');
@@ -117,9 +116,10 @@ function idleEncounter(enemy, area) {
       unresolved.add(human(name) + ' changes mid-fight');
       return;
     }
-    if (side === 'Player' && activeEffect) lingers = true;
-    if (side === 'Player' && name === 'PercentDamageTaken' && bare(mod.Stat.StatsType) === 'CombatEffect') {
-      const id = mod.LocalContext?.Effect || '';
+    const isEffectDamage = name === 'PercentDamageTaken' && bare(mod.Stat.StatsType) === 'CombatEffect';
+    const id = isEffectDamage ? mod.LocalContext?.Effect || '' : null;
+    if (side === 'Player' && carryKey) carryMods.set(carryKey,{name,value,id});
+    if (side === 'Player' && isEffectDamage) {
       effectDamage.set(id, (effectDamage.get(id) || 0) + value);
     } else {
       totals[side][name] = (totals[side][name] || 0) + value;
@@ -138,12 +138,11 @@ function idleEncounter(enemy, area) {
       unresolved.add(id ? human(id) : human(type));
       return;
     }
-    const scale = type === 'Stacking' ? effect.MaxStacks : type === 'RandomMagnitude'
+    const scale = type === 'Stacking' || type === 'DamageOverTime' ? effect.MaxStacks || 1 : type === 'RandomMagnitude'
       ? Math.max(effect.DefaultMaxStacks || 1, configured.Data?.Configuration?.MaxStacks || 1) : 1;
-    for (const mod of effect.Modifiers || []) addMod(mod, side, scale, true);
+    for (const [index,mod] of (effect.Modifiers || []).entries()) addMod(mod,side,scale,[type,id,index,source].join('/'));
     if (side === 'Player' && (effect.DamagePerProc || effect.DamagePerTurn || type === 'Bleed')) {
       effects.set(key, {effect, source, id});
-      if (type !== 'EndOfTurnDamage') lingers = true;
     }
     addEffect(effect.RemovalEffect, side, source);
   }
@@ -163,14 +162,14 @@ function idleEncounter(enemy, area) {
       const side = row.Modifier.AppliesTo === 'Self' ? source : source === 'Enemy' ? 'Player' : 'Enemy';
       const type = bare(row.Modifier.Trigger?.Type || '');
       const event = row.Modifier.Trigger?.Data?.Type || '';
-      if (side === 'Player' && /FoodEaten|OnDeath/.test(type + '/' + event)) unresolved.add('Effect triggered by food or death');
+      if (side === 'Player' && /FoodEaten|OnDeath/.test(type + '/' + event) &&
+          bare(row.Modifier.Effect?.Type || '') !== 'EndOfTurnDamage') unresolved.add('Unmodeled effect triggered by food or death');
       if (!row.Modifier.Effect) unresolved.add('Missing combat effect data');
       addEffect(row.Modifier.Effect, side, source);
     }
   }
 
   if (!stats?.maxHits?.length) unresolved.add('Missing enemy stats');
-  if (enemy.data.PauseOnSpawn) unresolved.add('Fight pauses on spawn');
   for (const id of new Set([...(enemy.data.Passives || []), ...(area?.data.Passives || [])])) {
     const passive = data('CombatPassive', id);
     if (passive) addModifiers(passive.Modifiers);
@@ -194,24 +193,47 @@ function idleEncounter(enemy, area) {
     }
     attacks.push(attack);
   }
-  return {enemy, stats, totals, attacks, effects: [...effects.values()], effectDamage, lingers, unresolved, immunities};
+  return {enemy,stats,totals,attacks,effects:[...effects.values()],effectDamage,carryMods,unresolved,immunities};
 }
 
-function idleEvaluate(encounter, profile, hp = profile.hp) {
+function idlePoolEnvelope(encounters) {
+  const mods = new Map();
+  let damageDealt = 0;
+  for (const encounter of encounters) {
+    damageDealt = Math.max(damageDealt,encounter.totals.Enemy.PercentDamageDealt || 0);
+    for (const [key,mod] of encounter.carryMods) {
+      if (!mods.has(key) || Math.abs(mods.get(key).value)<Math.abs(mod.value)) mods.set(key,mod);
+    }
+  }
+  return {mods,damageDealt};
+}
+
+function idleEvaluate(encounter, profile, hp = profile.hp, carry = null) {
   const {stats, totals, attacks, effects, effectDamage} = encounter;
   const unresolved = new Set(encounter.unresolved);
+  const blocked = new Set();
   if (encounter.immunities.has(profile.style) || encounter.immunities.has('All')) {
-    unresolved.add('Immune to ' + profile.style + ' attacks');
+    const alternatives = ['Melee','Ranged','Magic'].filter(style=>!encounter.immunities.has(style));
+    blocked.add('Immune to '+profile.style+' attacks.'+
+      (!encounter.immunities.has('All') && alternatives.length ? ' Use '+alternatives.join(' or ')+'.' : ''));
   }
+  if (encounter.enemy.data.PauseOnSpawn) blocked.add('Fight pauses when the enemy spawns');
   const threshold = idleRoundEven(hp * profile.threshold);
-  if (!stats?.maxHits?.length) return {threshold, unresolved};
+  if (!stats?.maxHits?.length) return {threshold,unresolved,blocked};
   const {data} = idleData();
+  const player = {...totals.Player}, effectVulnerability = new Map(effectDamage);
+  for (const [key,mod] of carry?.mods || []) {
+    const extra = mod.value-(encounter.carryMods.get(key)?.value || 0);
+    if (mod.id == null) player[mod.name] = (player[mod.name] || 0)+extra;
+    else effectVulnerability.set(mod.id,(effectVulnerability.get(mod.id) || 0)+extra);
+  }
   const e = name => totals.Enemy[name] || 0;
-  const p = name => totals.Player[name] || 0;
+  const p = name => player[name] || 0;
   const armour = p('ArmourBroken') ? 0 : profile.armour;
   const power = Math.max(1, Math.trunc((stats.powerRating + e('FlatPowerRating')) * (1 + e('PercentPowerRating'))));
   const protection = Math.max(0, Math.floor((profile.protection + p('FlatProtectionRating')) * (1 + p('PercentProtectionRating'))));
   const damage = [];
+  let needsMaxHit = false;
   let canBreakArmour = false;
   for (const stance of stats.maxHits.filter(stance => stance.weight !== 0)) {
     const triangle = data('CombatTriangleBonus', profile.style + 'Vs' + stance.style);
@@ -221,7 +243,7 @@ function idleEvaluate(encounter, profile, hp = profile.hp) {
       (protection / (power + protection) + p('FlatResistance') + profile.resistance / 100) * (1 + p('PercentResistance')), .7
     ) * (1 + triangleResistance + p('ResistanceCombatTriangle')), 1);
     const maxHit = Math.max(1, Math.floor(stance.maxHit * (1 + e('PercentMaxHit')) + e('FlatMaxHit')));
-    const reduce = (raw, bonus, reduction, remainingArmour) => Math.trunc(Math.max(1, raw * (1 + e('PercentDamageDealt')) *
+    const reduce = (raw, bonus, reduction, remainingArmour, damageDealt = e('PercentDamageDealt')) => Math.trunc(Math.max(1, raw * (1 + damageDealt) *
       (1 + p('PercentDamageTaken') + profile.vulnerability / 100 + p('PercentDamageTakenFrom') + bonus) *
       (1 - reduction) - remainingArmour));
     function roll(row, owner, directDamage) {
@@ -232,8 +254,12 @@ function idleEvaluate(encounter, profile, hp = profile.hp) {
       if (Number.isFinite(scale) && type === 'DamageDealt' && Number.isFinite(directDamage)) return Math.trunc(directDamage * scale);
       if (Number.isFinite(scale) && ['NormalDamage', 'MaxHit', 'CurrentHitpoints', 'MaxHitpoints'].includes(type)) {
         const hitpoints = /Hitpoints$/.test(type);
-        const bound = owner === 'Enemy' ? (hitpoints ? stats.hitpoints : maxHit) : (hitpoints ? hp : null);
+        const bound = owner === 'Enemy' ? (hitpoints ? stats.hitpoints : maxHit) : (hitpoints ? hp : profile.maxHit);
         if (bound != null) return Math.ceil(bound * scale);
+        if (owner === 'Player') {
+          needsMaxHit = true;
+          return 0;
+        }
       }
       unresolved.add('Damage formula: ' + (type ? human(type) : 'missing'));
       return 0;
@@ -254,22 +280,23 @@ function idleEvaluate(encounter, profile, hp = profile.hp) {
       const row = effect.DamagePerProc || effect.DamagePerTurn;
       const owner = row?.Character === 'Target' ? 'Player' : source;
       const raw = Math.max(1, row ? roll(row, owner, maxDirect) : Math.ceil(maxDirect * effect.PercentDamageDealtPerProc)) * (effect.MaxStacks || 1);
-      if (source === 'Player') unresolved.add('Player-sourced damage');
-      const bonus = (effectDamage.get(id) || 0) + (effectDamage.get('') || 0);
+      const bonus = (effectVulnerability.get(id) || 0) + (effectVulnerability.get('') || 0);
       // A timed effect can tick during respawn, when its source has no target resistance stats.
-      const damageBound = reduce(raw, bonus, 0, 0);
+      const sourceBonus = source === 'Player' ? 0 : effect.DamagePerTurn ? e('PercentDamageDealt') : carry?.damageDealt ?? e('PercentDamageDealt');
+      const damageBound = reduce(raw, bonus, 0, 0, sourceBonus);
       damage.push({value: damageBound, style: stance.style});
     }
   }
   // The game removes armour after an attack deals at least that much damage through it.
   // Later hits and effect ticks then get no armour reduction.
   if (canBreakArmour) {
-    return {...idleEvaluate(encounter, {...profile, armour: 0}, hp), canBreakArmour};
+    return {...idleEvaluate(encounter, {...profile, armour: 0}, hp, carry), canBreakArmour};
   }
   const worst = damage.reduce((max, hit) => !max || hit.value > max.value ? hit : max, null);
   if (!worst) unresolved.add('No modeled damage events');
   if (!Number.isFinite(worst?.value)) unresolved.add('Invalid damage bound');
-  return {worst, threshold, unresolved, fits: Boolean(worst && worst.value <= threshold && !unresolved.size)};
+  return {worst,threshold,unresolved,blocked,needsMaxHit,fits:Boolean(worst && worst.value<=threshold &&
+    !unresolved.size && !blocked.size && !needsMaxHit)};
 }
 
 function idlePage(params) {
@@ -283,7 +310,8 @@ function idlePage(params) {
   const legacyGroups = new Map([['slayer areas', 'Slayer Zones'], ['dungeons', 'Standard Dungeons']]);
   const category = params.get('group')?.toLowerCase();
   const group = groups.find(name => name.toLowerCase() === category) || legacyGroups.get(category) || '';
-  const statuses = {'': 'Any result', fit: 'Can idle', exceeds: 'Above limit', review: 'Review needed'};
+  const statuses = {'':'Any result',fit:'Can idle',exceeds:'Above limit',blocked:'Blocked',
+    maxhit:'Enter your max hit',review:'Review needed'};
   const value = (key, fallback, min, max) => {
     const raw = params.get(key);
     return raw && Number.isFinite(Number(raw)) ? Math.max(min, Math.min(max, Number(raw))) : fallback;
@@ -292,8 +320,9 @@ function idlePage(params) {
   const bonus = value('eat', 0, -35, 15), protection = Math.round(value('protection', 0, 0, 1000000));
   const armour = Math.round(value('armour', 0, 0, 1000000)), resistance = value('resistance', 0, -100, 70);
   const vulnerability = value('damage', 0, 0, 1000);
+  const maxHit = value('maxhit','',1,1000000);
   const style = styles.includes(params.get('style')) ? params.get('style') : 'Melee';
-  const status = ['fit', 'exceeds', 'review'].includes(params.get('show')) ? params.get('show') : '';
+  const status = Object.hasOwn(statuses,params.get('show')) ? params.get('show') : '';
   const query = (params.get('q') || '').trim().slice(0, 80);
   const locationsFor = group => areas.filter(area => !area.placeholder && (!group || group === all || area.category === group));
   const locationOptions = (group, selected) => [
@@ -307,7 +336,8 @@ function idlePage(params) {
   main.innerHTML = '<h1>Can I Idle?</h1><p>Check a fight against your Auto Eat threshold with unlimited equipped food. Enter your max HP, protection rating and armour as they appear outside combat.</p>' +
     '<form id="idle-profile"><fieldset><legend>Your character</legend><div class="idle-fields">' +
     numberField('hp', 'Max HP', hp, 1, 1000000) + numberField('protection', 'Protection rating', protection, 0, 1000000) +
-    numberField('armour', 'Armour', armour, 0, 1000000) + '<label>Auto Eat <select name="tier">' +
+    numberField('armour', 'Armour', armour, 0, 1000000) + numberField('maxhit','Your max hit (if needed)',maxHit,1,1000000) +
+    '<label>Auto Eat <select name="tier">' +
     tiers.slice(1).map((rate, i) => moneyOption(i + 1, (i + 1) + ' (' + Math.round(rate * 100) + '%)', tier)).join('') +
     '</select></label><label>Combat style <select name="style">' + styles.map(name => moneyOption(name, name, style)).join('') + '</select></label></div>' +
     '<details' + (bonus || resistance || vulnerability ? ' open' : '') + '><summary>Advanced stats</summary><div class="idle-fields">' +
@@ -322,7 +352,8 @@ function idlePage(params) {
     '</select></label></div></fieldset></form>' +
     '<p id="idle-threshold" aria-live="polite">Calculating Auto Eat threshold…</p><p>Start above the Auto Eat threshold with enough equipped food to keep healing above it. ' +
     'The check assumes your entered stats stay available and covers hits, armour breaks and damaging effects. Keep any ammo, runes or other supplies your setup needs.</p>' +
-    '<p>Green means the modeled damage stays within the Auto Eat limit. Grey means the damage exceeds it or the encounter needs review.</p><div id="idle-results"><p>Calculating encounters…</p></div>';
+    '<p>Group results include an upper bound for effects that can carry between fights. Toxic Bog also uses your max hit to calculate poison you can apply to yourself.</p>' +
+    '<p>Open a result with a disclosure arrow to see its reason.</p><div id="idle-results"><p>Calculating encounters…</p></div>';
 
   const form = main.querySelector('#idle-profile');
   const results = main.querySelector('#idle-results');
@@ -331,7 +362,7 @@ function idlePage(params) {
   const encounters = new Map();
   const locations = new Map(), coverage = new Map();
   for (const area of areas) {
-    const info = {missing:area.incomplete,lingers:false};
+    const info = {missing:area.incomplete};
     coverage.set(area.node.key,info);
     for (const id of area.enemies) {
       const node = publicNode('Enemy',id);
@@ -343,13 +374,18 @@ function idlePage(params) {
       locations.get(node.id).push(area.node);
       const encounter = idleEncounter(node,area.node);
       encounters.set(node.key+'/'+area.node.key,encounter);
-      info.lingers ||= encounter.lingers;
     }
-    info.mixedEffects = info.lingers && area.enemies.length > 1;
   }
-  const resultKey = ({result}) => result.unresolved.size ? 'review' : result.fits ? 'fit' : 'exceeds';
-  const badge = (key, reasons = []) => '<span class="idle-result idle-' + key +
-    (reasons.length ? '" title="' + escape(reasons.join('; ')) : '') + '">' + statuses[key] + '</span>';
+  const resultKey = ({result}) => result.blocked?.size ? 'blocked' : result.unresolved.size ? 'review' :
+    result.needsMaxHit ? 'maxhit' : result.fits ? 'fit' : 'exceeds';
+  const resultReasons = (result, name = '') => [...(result.blocked || []),...result.unresolved]
+    .map(reason=>name ? name + ' — ' + reason : reason)
+    .concat(result.needsMaxHit ? ['Enter the highest Max Hit shown in combat with this setup to include self-inflicted damage.'] : []);
+  const badge = (key, reasons = []) => {
+    const label = '<span class="idle-result idle-' + key + '">' + statuses[key] + '</span>';
+    return reasons.length ? '<details class="idle-reason"><summary>'+label+'</summary><ul>'+
+      reasons.map(reason=>'<li>'+escape(reason)+'</li>').join('')+'</ul></details>' : label;
+  };
   const damageCell = hit => {
     if (!Number.isFinite(hit?.value)) return '—';
     const src = imageSource(idleData().data('CombatStyle', hit.style)?.Icon);
@@ -360,7 +396,7 @@ function idlePage(params) {
 
   let urlTimer, lastProfile;
   function renderResults(updateUrl = false) {
-    const fields = Object.fromEntries(['hp', 'tier', 'style', 'eat', 'protection', 'armour', 'resistance', 'damage', 'group', 'target', 'show', 'q']
+    const fields = Object.fromEntries(['hp', 'tier', 'style', 'eat', 'protection', 'armour', 'resistance', 'damage', 'maxhit', 'group', 'target', 'show', 'q']
       .map(name => [name, form.elements.namedItem(name).value]));
     const signature = JSON.stringify(fields);
     const valid = form.checkValidity();
@@ -376,7 +412,8 @@ function idlePage(params) {
     const profile = {
       hp: Number(fields.hp), threshold: idleClamp(tiers[Number(fields.tier)] + Number(fields.eat) / 100, .5),
       style: fields.style, protection: Number(fields.protection), armour: Number(fields.armour),
-      resistance: Number(fields.resistance), vulnerability: Number(fields.damage)
+      resistance: Number(fields.resistance), vulnerability: Number(fields.damage),
+      maxHit: fields.maxhit === '' ? null : Number(fields.maxhit)
     };
     const {group, target: selected, show: status} = fields;
     const query = fields.q.trim().toLowerCase();
@@ -390,43 +427,57 @@ function idlePage(params) {
     const thresholdText = 'Auto Eat triggers at ' + number(idleRoundEven(profile.hp * profile.threshold)) + ' HP.';
     if (threshold.textContent !== thresholdText) threshold.textContent = thresholdText;
     const seen = new Map();
-    const check = (node, area, singleTarget = false) => {
-      const key = node.key + '/' + (area?.key || ''), cacheKey = key + '/' + singleTarget;
-      if (!seen.has(cacheKey)) {
-        if (!encounters.has(key)) encounters.set(key, idleEncounter(node, area));
-        const encounter = encounters.get(key), result = idleEvaluate(encounter,profile);
+    const encounterFor = (node,area) => {
+      const key = node.key+'/'+(area?.key || '');
+      if (!encounters.has(key)) encounters.set(key,idleEncounter(node,area));
+      return encounters.get(key);
+    };
+    const check = (node,area) => {
+      const key = node.key+'/'+(area?.key || '');
+      if (!seen.has(key)) {
+        const encounter = encounterFor(node,area), result = idleEvaluate(encounter,profile);
         const info = coverage.get(area?.key);
         if (info?.missing) result.unresolved.add('Incomplete encounter data');
-        if (!singleTarget && info?.mixedEffects) result.unresolved.add('Effects may carry between different enemies');
-        seen.set(cacheKey, {node, area, result, lingers:encounter.lingers});
+        seen.set(key,{node,area,result});
       }
-      return seen.get(cacheKey);
+      return seen.get(key);
+    };
+    const summarize = (rows,missing) => {
+      const encounters = rows.map(row=>encounterFor(row.node,row.area));
+      const envelope = idlePoolEnvelope(encounters);
+      const evaluated = encounters.map(encounter=>({name:encounter.enemy.name,result:idleEvaluate(encounter,profile,profile.hp,envelope)}));
+      const keys = evaluated.map(resultKey);
+      const reasons = new Set(evaluated.flatMap(({result,name})=>resultReasons(result,name)));
+      if (missing || !rows.length || rows.some(({result})=>result.unresolved.has('Incomplete encounter data'))) {
+        reasons.add('Incomplete encounter data');
+        keys.push('review');
+      }
+      const key = ['blocked','review','maxhit','exceeds'].find(key=>keys.includes(key)) || 'fit';
+      const worst = evaluated.reduce((max,{result:{worst:hit}})=>hit && (!max || hit.value>max.value) ? hit : max,null);
+      return {key,reasons:[...reasons],worst};
     };
     const matches = ({node, area}) => !query || [node.name, area?.name].some(name => name?.toLowerCase().includes(query));
     const visible = row => !status || resultKey(row) === status;
     const empty = '<p>No encounters match these filters.</p>';
     const sectionId = name => 'idle-' + name.toLowerCase().replaceAll(' ', '-');
     const monsterTable = rows => rows.length ? table(['Monster','Location','Max damage/event','Result'], rows.map(row => [
-      link(row.node,true), row.area ? link(row.area,true) : '—', damageCell(row.result.unresolved.size ? null : row.result.worst),
-      badge(resultKey(row), [...row.result.unresolved])
+      link(row.node,true), row.area ? link(row.area,true) : '—',
+      damageCell(['fit','exceeds'].includes(resultKey(row)) ? row.result.worst : null),
+      badge(resultKey(row),resultReasons(row.result))
     ]), true) : empty;
     const areaRows = area => area.enemies.map(id => publicNode('Enemy',id)).filter(Boolean).map(node => check(node,area.node));
     function renderSlayer() {
       const pools = slayerPools.filter(({node})=>!selected || node.id===selected).map(pool=>{
-        const rows = pool.targets.map(target=>({...check(target.node,target.area,true),weight:target.weight}));
-        const reasons = new Set(rows.flatMap(row=>[...row.result.unresolved]));
-        if (pool.missing || !rows.length) reasons.add('Incomplete task pool data');
-        if (rows.length>1 && rows.some(row=>row.lingers)) reasons.add('Effects may carry between Auto Slayer tasks');
-        const key = reasons.size ? 'review' : rows.every(row=>row.result.fits) ? 'fit' : 'exceeds';
+        const rows = pool.targets.map(target=>({...check(target.node,target.area),weight:target.weight}));
         const nameMatches = Boolean(query && pool.node.name.toLowerCase().includes(query));
-        return {...pool,rows,reasons,key,nameMatches};
+        return {...pool,rows,...summarize(rows,pool.missing),nameMatches};
       }).filter(pool=>!query || pool.nameMatches || pool.rows.some(matches));
       const shown = pools.filter(pool=>selected || !status || pool.key===status);
-      const summary = shown.length ? table(['Slayer Master','Requirements','Possible Targets','Auto Slayer'],
-        shown.map(({node,targets,key,reasons})=>[
+      const summary = shown.length ? table(['Slayer Master','Requirements','Possible Targets','Max damage/event','Auto Slayer'],
+        shown.map(({node,targets,key,reasons,worst})=>[
           '<a class="row-link" href="' + escape(route('idle',{...urlParams,group:slayer,target:node.id})) + '">' +
             icon(node) + escape(node.name) + '</a>',
-          requirements(node), numericCell(targets.length), badge(key,[...reasons])
+          requirements(node), numericCell(targets.length),damageCell(['fit','exceeds'].includes(key) ? worst : null),badge(key,reasons)
         ]),true) : empty;
       const focused = selected && pools[0];
       let details = '';
@@ -444,7 +495,7 @@ function idlePage(params) {
               (access==='—' ? '' : '<div class="wiki-note">Area access ' + access + '</div>') +
               table(['Task Target','Task Chance','Max damage/event','Result'],rows.map(row=>[
                 link(row.node,true),lootChanceCell(row.weight/focused.rolls),
-                damageCell(row.result.unresolved.size ? null : row.result.worst),badge(resultKey(row),[...row.result.unresolved])
+                damageCell(['fit','exceeds'].includes(resultKey(row)) ? row.result.worst : null),badge(resultKey(row),resultReasons(row.result))
               ]),true);
           }).join('') : empty);
       }
@@ -454,7 +505,7 @@ function idlePage(params) {
       if (name === slayer) return renderSlayer();
       if (name === all) {
         // A monster found in several places uses its most restrictive matching location.
-        const risk = row => row.result.unresolved.size ? Infinity : row.result.worst?.value ?? Infinity;
+        const risk = row => ['blocked','review','maxhit'].includes(resultKey(row)) ? Infinity : row.result.worst?.value ?? Infinity;
         const rows = enemies.map(node => {
           const areas = locations.get(node.id) || [null];
           return areas.filter(area => !selected || area?.id === selected).map(area => check(node,area))
@@ -466,23 +517,15 @@ function idlePage(params) {
       const collections = categoryAreas.map(area => ({node: area.node,areas:[area],missing:coverage.get(area.node.key).missing}));
       const ranked = collections.filter(({node}) => !selected || node.id === selected).map(({node,areas,missing}) => {
         const rows = areas.flatMap(areaRows);
-        const keys = rows.map(resultKey);
-        const reasons = [...new Set(rows.flatMap(row=>[...row.result.unresolved]))];
-        if (missing || !rows.length) reasons.push('Incomplete encounter data');
-        const key = reasons.length ? 'review' : keys.includes('exceeds') ? 'exceeds' : 'fit';
         const nameMatches = Boolean(query && node.name.toLowerCase().includes(query));
-        return {node, rows, key, nameMatches, reasons};
+        return {node,rows,nameMatches,...summarize(rows,missing)};
       }).filter(row => !query || row.nameMatches || row.rows.some(matches));
       const summaries = ranked.filter(row => !status || row.key === status);
       const summary = summaries.length ? table(['Location','Max damage/event','Result'],
-        summaries.map(({node, rows, key, reasons}) => {
-          const worst = rows.reduce((max,row) => {
-            const hit = row.result.worst;
-            return hit && (!max || hit.value > max.value) ? hit : max;
-          },null);
+        summaries.map(({node,key,reasons,worst}) => {
           const target = '<a class="row-link" href="' + escape(route('idle', {...urlParams, group: name, target: node.id})) +
             '">' + icon(node) + escape(node.name) + '</a>';
-          return [target,damageCell(key === 'review' ? null : worst),badge(key,reasons)];
+          return [target,damageCell(['fit','exceeds'].includes(key) ? worst : null),badge(key,reasons)];
         }),true) : empty;
       const details = group && (selected || ranked.length) ? '<h3>Monster results</h3>' + monsterTable(
         [...new Set(ranked.flatMap(row => row.rows.filter(monster => (row.nameMatches || matches(monster)) && visible(monster))))]

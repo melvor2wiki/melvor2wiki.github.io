@@ -8,6 +8,8 @@
 #idle-profile details .idle-fields { margin-top: .5rem; }
 .idle-result { font-weight: 700; white-space: nowrap; }
 #idle-results tbody tr:has(.idle-fit) > td { background-color: #304b3d; }
-#idle-results tbody tr:has(.idle-exceeds, .idle-review) > td { background-color: #3b4046; }
+#idle-results tbody tr:has(.idle-exceeds, .idle-review, .idle-blocked, .idle-maxhit) > td { background-color: #3b4046; }
+.idle-reason { text-align: start; }
+.idle-reason ul { margin: .25rem 0 0; padding-inline-start: 1rem; max-inline-size: 20rem; }
 .idle-damage { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
 .idle-damage .icon { width: 20px; height: 20px; }
