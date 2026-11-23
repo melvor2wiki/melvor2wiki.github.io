@@ -50,5 +50,6 @@ function cleanHerbloreSections(skill, actions) {
   return [['herbs','Herbs',herbBody],['voci','Potions',potionBody]];
 }
 function wikiSkillCoreSections(skill,actions) {
+  if (bare(skill.id)==='Astrology') return astrologyOverview();
   return bare(skill.id)==='Herblore'?cleanHerbloreSections(skill,actions):cleanOriginalCoreSections(skill,actions);
 }

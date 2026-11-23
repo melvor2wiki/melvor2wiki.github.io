@@ -56,6 +56,8 @@ app=app.replace('Currency: "Currency", Prayer: "Prayer", MagicSpell: "Spell",',
     'Currency: "Currency", Prayer: "Prayer", MagicSpell: "Spell", Imbuement: "Magic Imbuement",')
 app=app.replace('n => /Spell|Prayer|CombatStat|Attack|Effect|CombatPassive/.test(n.type)', 'n => catalogCombatType(n.type)')
 app=app.replace('SpellBook: ["SpellBook"],', 'SpellBook: ["SpellBook"], Book: ["SpellBook"], Imbuements: ["Imbuement"],')
+app=app.replace('Astrology: ["meccaniche", "gilda", "mantelli", "pet", "voci", "pozioni", "bonus"],',
+    'Astrology: ["meccaniche", "gilda", "mantelli", "pet", "voci", "constellation-nodes", "pozioni", "bonus"],')
 app=app.replace('typeName(node.type) + " " +\n    [...(owners.get(node.key)',
     'typeName(node.type) + (node.type === "Imbuement" ? " imbuements " : " ") +\n    [...(owners.get(node.key)',1)
 app=app.replace('const sourcePath = ', '''for (const [skillId, types] of Object.entries(catalogSkillTypes())) {
@@ -136,7 +138,7 @@ app = app.replace('"Sell Price per Unit", "Base Chance"], entries.map',
 start = app.index('function publicDetail(')
 end = app.index('function publicGuides(', start)
 detail = app[start:end]
-detail = detail.replace('n=publicCanonical(n);', 'n=publicCanonical(n);\n  if(catalogDetail(n))return true;',1)
+detail = detail.replace('n=publicCanonical(n);', 'n=publicCanonical(n);\n  if(astrologyDetail(n)||catalogDetail(n))return true;',1)
 detail = detail.replace('let out=publicHead(n);', 'let out="";')
 detail = re.sub(r"  const req=requirements\(n\);[^\n]*\n\s*if\(d\.BaseExperience[^\n]*\n", '', detail, count=1)
 detail = detail.replace("if(properties.length && n.type!=='MasteryGuildRank')",
@@ -163,6 +165,7 @@ for original, saved in [('link','formatV2OriginalLink'),('icon','formatV2Origina
 for module in ['wiki-format','training-guides','entity-pages','skill-cleanup','training-reader','layout-polish']:
     app+='\n'+(root/'overrides'/f'{module}.js').read_text(encoding='utf-8-sig')
 app+='\n'+(root/'overrides/catalog-coverage.js').read_text(encoding='utf-8')
+app+='\n'+(root/'overrides/astrology.js').read_text(encoding='utf-8')
 app+='\n'+(root/'overrides/money-guide.js').read_text(encoding='utf-8')
 app+='\n'+(root/'overrides/money-supply.js').read_text(encoding='utf-8-sig')
 app+='\n'+(root/'overrides/money-combos.js').read_text(encoding='utf-8-sig')

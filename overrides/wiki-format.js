@@ -10,7 +10,8 @@ function publicChanceDisplay(p) {
   return '<span class="drop-odds">1/' + ratio + ' (' + percentage + '%)</span>';
 }
 function link(node, withIcon = false) {
-  if (/^(AstrologyNode|AstrologyStarNode|MasteryGuildBonus|MasteryGuildRank)$/.test(node?.type)) return (withIcon ? icon(node) : '') + escape(node.name);
+  if (/^(AstrologyStarNode|MasteryGuildBonus|MasteryGuildRank)$/.test(node?.type) ||
+      node?.type === 'AstrologyNode' && !astrologyNodeParent(node)) return (withIcon ? icon(node) : '') + escape(node.name);
   if (node?.type === 'Currency' && bare(node.id) === 'GoldPieces' && withIcon) {
     return '<a class="row-link currency-icon" href="' + detailUrl(node) + '" title="Gold" aria-label="Gold">' + icon(node) + '</a>';
   }
@@ -170,6 +171,7 @@ function publicRoute(screen, params) {
 }
 function publicFinishPage() {
   formatV2OriginalFinishPage();
+  astrologyBind();
   main.querySelectorAll('section#requirements').forEach(s => {
     const heading = s.querySelector('h2'); if (heading) heading.remove();
     const text = s.innerHTML; s.innerHTML = table(['Requirements'], [[text]]); s.classList.add('compact-requirements');
