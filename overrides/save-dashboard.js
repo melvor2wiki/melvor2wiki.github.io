@@ -322,10 +322,10 @@ function wikiBindSaveFolderHelp(container) {
 function wikiSavePage(params,legacyCombat=false) {
   main.innerHTML='<h1>Save Analyzer</h1><p>Choose your Melvor Idle 2 <code>.sav</code> or <code>.bak</code> to see your progress and compare what you can train or farm now.</p>'+
     '<p>Your save is processed in this tab. The wiki does not upload the file or keep a copy.</p>'+
+    '<p><a href="#/save?view=combat" id="save-combat-jump" class="save-combat-action">'+combatSwordsIcon()+'Open Combat Planner</a></p>'+
     '<div class="save-controls"><label for="wiki-save-file">Save file</label><input type="file" id="wiki-save-file" accept=".sav,.bak,application/octet-stream">'+
     '<button type="button" id="wiki-save-clear" hidden>Clear save</button></div>'+wikiSaveFolderHelp()+
     '<p role="status" aria-live="polite" id="wiki-save-status"></p>'+
-    '<p><a href="#save-combat-planner" id="save-combat-jump">Open Combat Planner</a></p>'+
     '<div id="wiki-save-report"></div><details id="save-combat-planner"><summary>Combat Planner</summary><div></div></details>';
   const input=main.querySelector('#wiki-save-file'), clear=main.querySelector('#wiki-save-clear');
   const status=main.querySelector('#wiki-save-status'), report=main.querySelector('#wiki-save-report');

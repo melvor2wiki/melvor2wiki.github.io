@@ -2,11 +2,116 @@ function combatOption(value,label) {
   return '<option value="'+escape(value)+'">'+escape(label)+'</option>';
 }
 
+function combatGearPicker(select, imageFor) {
+  const wrapper=select.parentElement, name=select.dataset.picker, key=select.name;
+  const holder=document.createElement('div');
+  holder.className='combat-picker';
+  holder.innerHTML='<button type="button" class="combat-picker-trigger" aria-haspopup="listbox" aria-expanded="false">'+
+    '<span data-gear-icon="'+key+'" aria-hidden="true"></span><span class="combat-picker-selected"></span></button>'+
+    '<div class="combat-picker-popup" hidden><input type="search" autocomplete="off" placeholder="Search '+escape(name.toLowerCase())+
+    '" aria-label="Search '+escape(name.toLowerCase())+'"><div role="listbox" aria-label="'+escape(name)+' options"></div>'+
+    '<p class="combat-picker-empty" hidden>No matching options.</p></div>';
+  select.after(holder);
+  select.hidden=true;
+  const trigger=holder.querySelector('button'), popup=holder.querySelector('.combat-picker-popup');
+  const icon=trigger.firstElementChild, label=trigger.lastElementChild;
+  const search=popup.querySelector('input'), list=popup.querySelector('[role=listbox]'), empty=popup.querySelector('p');
+
+  function thumbnail(place,value) {
+    const src=imageFor(key,value);
+    if (!src) { place.replaceChildren(); return; }
+    if (place.firstChild?.getAttribute('src')===src) return;
+    const image=document.createElement('img');
+    image.className='icon';
+    image.alt='';
+    image.src=src;
+    place.replaceChildren(image);
+  }
+  function close(returnFocus=false) {
+    popup.hidden=true;
+    trigger.setAttribute('aria-expanded','false');
+    if (returnFocus) trigger.focus();
+  }
+  function options() {
+    const query=search.value.trim().toLowerCase();
+    const matches=[...select.options].filter(o=>o.textContent.toLowerCase().includes(query));
+    const rows=matches.map(o=>{
+      const button=document.createElement('button'), art=document.createElement('span');
+      button.type='button';
+      button.tabIndex=-1;
+      button.className='combat-picker-option';
+      button.dataset.value=o.value;
+      button.setAttribute('role','option');
+      button.setAttribute('aria-selected',String(o.selected));
+      thumbnail(art,o.value);
+      button.append(art,o.textContent);
+      return button;
+    });
+    list.replaceChildren(...rows);
+    empty.hidden=rows.length>0;
+  }
+  function selectRow(row) {
+    select.value=row.dataset.value;
+    close(true);
+    select.dispatchEvent(new Event('input',{bubbles:true}));
+  }
+  trigger.addEventListener('click',()=>{
+    if (!popup.hidden) { close(); return; }
+    search.value='';
+    options();
+    popup.hidden=false;
+    trigger.setAttribute('aria-expanded','true');
+    search.focus({preventScroll:true});
+    const selected=list.querySelector('[aria-selected=true]');
+    if (selected) list.scrollTop=selected.offsetTop-list.offsetTop;
+  });
+  search.addEventListener('input',options);
+  list.addEventListener('click',event=>{
+    const row=event.target.closest('[role=option]');
+    if (row) selectRow(row);
+  });
+  holder.addEventListener('focusout',event=>{
+    if (!holder.contains(event.relatedTarget)) close();
+  });
+  holder.addEventListener('keydown',event=>{
+    if (popup.hidden && event.target===trigger && event.key==='ArrowDown') {
+      event.preventDefault();
+      trigger.click();
+      return;
+    }
+    if (popup.hidden) return;
+    const rows=[...list.children], index=rows.indexOf(event.target);
+    if (event.key==='Escape') { event.preventDefault(); close(true); }
+    if (event.key==='Enter'&&event.target===search) {
+      event.preventDefault();
+      if (rows.length) selectRow(rows[0]);
+    }
+    if (!rows.length || !['ArrowDown','ArrowUp'].includes(event.key)) return;
+    event.preventDefault();
+    const step=event.key==='ArrowDown'?1:-1;
+    rows[(index<0&&step<0?rows.length-1:(index+step+rows.length)%rows.length)].focus();
+  });
+  return () => {
+    const selected=select.selectedOptions[0];
+    label.textContent=selected?.textContent||'None';
+    trigger.setAttribute('aria-label',name+': '+label.textContent);
+    trigger.disabled=!select.options.length;
+    thumbnail(icon,select.value);
+    if (!popup.hidden) {
+      for(const row of list.children) thumbnail(row.firstElementChild,row.dataset.value);
+    }
+  };
+}
+
 function combatPlannerSetup(label) {
   const slots=byType.get('EquipmentSlot')||[];
   const list=(byType.get('Item')||[]).slice().sort((a,b)=>collator.compare(a.name,b.name));
-  const select=(key,name,options)=>'<label><span class="combat-field-label"><span data-gear-icon="'+key+'" aria-hidden="true"></span>'+
-    escape(name)+'</span><select name="'+key+'">'+options+'</select></label>';
+  const select=(key,name,options)=>{
+    const fixed={Weapon:'Attack',food:'Cooking'}[key];
+    const caption='<span class="combat-field-label">'+(fixed?icon(publicNode('Skill',fixed)):'')+escape(name)+'</span>';
+    return key==='tier'?'<label>'+caption+'<select name="'+key+'">'+options+'</select></label>':
+      '<div class="combat-choice">'+caption+'<select aria-label="'+escape(name)+'" data-picker="'+escape(name)+'" name="'+key+'">'+options+'</select></div>';
+  };
   const none=combatOption('','None');
   const items=type=>list.filter(x=>x.data.Capabilities?.['MelvorBase:Equipment']?.Type===type&&
     (bare(type)!=='Weapon'||x.data.Capabilities['MelvorBase:Weapon'])).map(x=>combatOption(x.id,x.name)).join('');
@@ -261,6 +366,9 @@ function combatPlannerPage(container,params,save) {
   }
   locations();
   let images={};
+  const pickerTypes={stance:'AttackStance',spell:'MagicSpell',prayer:'Prayer',imbuement:'Imbuement'};
+  const pickers=new Map(configs.map(root=>[root,[...root.querySelectorAll('select[data-picker]')]
+    .map(select=>combatGearPicker(select,(key,value)=>images[publicNode(pickerTypes[key]||'Item',value)?.image]))]));
   function updateStances(root) {
     const weapon=publicNode('Item',field(root,'Weapon').value)?.data.Capabilities?.['MelvorBase:Weapon'];
     const ids=publicNode('WeaponType',weapon?.Type)?.data.Stances||[];
@@ -278,21 +386,7 @@ function combatPlannerPage(container,params,save) {
       return item?[[slot.id,item]]:[];
     }));
     const select=(type,name)=>publicNode(type,field(root,name).value);
-    const icons=new Map([...slots].map(([id,node])=>[bare(id),node]));
-    for (const [key,type] of [['food','Item'],['stance','AttackStance'],['spell','MagicSpell'],['prayer','Prayer'],['imbuement','Imbuement']]) {
-      icons.set(key,select(type,key));
-    }
-    for (const place of root.querySelectorAll('[data-gear-icon]')) {
-      const src=images[icons.get(place.dataset.gearIcon)?.image];
-      const img=place.firstElementChild;
-      if (src && img?.getAttribute('src')!==src) {
-        const image=document.createElement('img');
-        image.className='icon';
-        image.alt='';
-        image.src=src;
-        place.replaceChildren(image);
-      } else if (!src && img) place.replaceChildren();
-    }
+    pickers.get(root).forEach(refresh=>refresh());
     const build=combatPlannerBuild({levels,slots,equipment:[...slots.values()],weapon:select('Item','Weapon'),stance:select('AttackStance','stance'),
       food:select('Item','food'),tier:+field(root,'tier').value,spell:select('MagicSpell','spell'),
       prayer:select('Prayer','prayer'),imbuement:select('Imbuement','imbuement')});
@@ -334,7 +428,7 @@ function combatPlannerPage(container,params,save) {
     const root=event.target.closest('.combat-setup');
     if (event.target===compare) configs[1].hidden=!compare.checked;
     if (event.target===categoryFilter) locations();
-    if (root) {
+    if (root && !event.target.closest('.combat-picker-popup')) {
       if (event.target.name==='Weapon') updateStances(root);
       update(root);
     }

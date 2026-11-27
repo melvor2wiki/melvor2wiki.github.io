@@ -15,6 +15,24 @@
   display: none;
 }
 
+#save-combat-jump {
+  display: inline-flex;
+  align-items: center;
+  gap: .55rem;
+  min-height: 44px;
+  padding: .2rem .85rem;
+  border: 1px solid #4d90bf;
+  background: #254e6c;
+  color: #fff;
+  font-weight: 700;
+}
+
+#save-combat-jump:hover,
+#save-combat-jump:focus-visible {
+  background: #33668a;
+  text-decoration: none;
+}
+
 .save-folder {
   margin-block: .75rem 1rem;
 }
