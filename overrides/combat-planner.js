@@ -230,17 +230,30 @@ function combatPlannerRate(result,player,xpSkill) {
     deaths:result.deaths==null?null:result.deaths*scale};
 }
 
-function combatPlannerChart(rows,metric,compare) {
+function combatPlannerChart(rows,metric,compare,xpSkill) {
   if (metric==='deaths' || metric==='net') return '';
   const chart=rows.map((row,index)=>({row,index})).filter(({row})=>row.rateA?.[metric]>0).slice(0,10);
   if (!chart.length) return '';
+  const heading={
+    xp:(xpSkill?xpSkill+' XP':'Total XP')+' per hour',
+    kills:'Kills or dungeon clears per hour',
+    value:'Gold and loot value per hour',
+    slayerCoins:'Slayer Coins per hour'
+  }[metric];
   const max=Math.max(...chart.flatMap(({row})=>[row.rateA[metric],row.rateB?.[metric]||0]));
-  const bar=(label,value)=>value==null?'':'<span>'+label+
-    '<meter min="0" max="'+max+'" value="'+value+'" aria-label="Setup '+label+'">'+value+'</meter>'+
-    '<small>'+wikiSaveNumber(value)+'</small></span>';
-  return '<section class="combat-chart" aria-label="Top ranked targets"><h2>Top ranked targets</h2>'+chart.map(({row,index})=>
+  const multiple=chart.length>1;
+  const bar=(setup,value,target)=>{
+    if (value==null) return '';
+    const unit={xp:'XP/h',kills:target.kind==='dungeon'?'clears/h':'kills/h',value:'GP/h',slayerCoins:'Slayer Coins/h'}[metric];
+    return '<div class="combat-chart-rate"><span>Setup '+setup+'</span>'+
+      (multiple?'<meter min="0" max="'+max+'" value="'+value+'" aria-label="Setup '+setup+' '+escape(heading)+'"></meter>':'')+
+      '<strong>'+wikiSaveNumber(value)+' '+unit+'</strong></div>';
+  };
+  return '<section class="combat-chart" aria-label="'+escape(heading)+'"><h2>'+escape(heading)+'</h2>'+
+    (multiple?'<p>Estimated rates for up to 10 targets ranked by Setup A. The bars use the same scale.</p>':
+      '<p>Estimated rate for this target.</p>')+chart.map(({row,index})=>
     '<div><button type="button" class="combat-target" data-result="'+index+'">'+icon(row.target.node)+escape(row.target.node.name)+'</button>'+
-    bar('A',row.rateA[metric])+(compare?bar('B',row.rateB?.[metric]):'')+'</div>').join('')+'</section>';
+    bar('A',row.rateA[metric],row.target)+(compare?bar('B',row.rateB?.[metric],row.target):'')+'</div>').join('')+'</section>';
 }
 
 function combatWeaponUpgrades(target,build,owned) {
@@ -508,7 +521,7 @@ function combatPlannerPage(container,params,save) {
       feedback.textContent=rows.length+' targets · sorted by Setup A.';
       if (!rows.length) return;
       const score=value=>value==null?'—':(['value','net'].includes(metric)?moneyAmount(value):numericCell(value));
-      results.innerHTML=combatPlannerChart(rows,metric,Boolean(B))+
+      results.innerHTML=combatPlannerChart(rows,metric,Boolean(B),xpSkill)+
         table(['Target','Area or category','Coverage','A · '+label,...(B?['B · '+label,'B − A']:[])],
         rows.map(({target,a,b,rateA,rateB},i)=>{
           const av=rateA?.[metric],bv=rateB?.[metric];

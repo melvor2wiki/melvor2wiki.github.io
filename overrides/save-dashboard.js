@@ -13,8 +13,8 @@ function wikiSaveSection(id,title,body) {
   return '<section id="'+id+'"><h2>'+title+'</h2>'+body+'</section>';
 }
 
-function wikiSaveDetails(title,body) {
-  return '<details><summary>'+title+'</summary>'+body+'</details>';
+function wikiSaveDetails(title,body,open=false) {
+  return '<details'+(open?' open':'')+'><summary>'+title+'</summary>'+body+'</details>';
 }
 
 function wikiSaveItemCounts(items) {
@@ -194,13 +194,13 @@ function wikiSaveInventory(save,profile) {
     return wikiSaveDetails(escape(name||'Bank tab '+(i+1))+' ('+stacks.length+')',
       table(['Item','In bank','Sell value','Locked'],stacks.map(item=>[
         wikiSaveRef('Item',item.id),numericCell(item.quantity),wikiSaveGP(moneyQuote(item.id)*item.quantity),item.locked?'Yes':'—'
-      ]),true));
+      ]),true),stacks.length>0);
   }).join('');
-  const slots=(title,entries)=>entries.size?wikiSaveDetails(title,table(['Slot','Item','Quantity'],[...entries].map(([slot,item])=>[
+  const slots=(title,entries,open=false)=>entries.size?wikiSaveDetails(title,table(['Slot','Item','Quantity'],[...entries].map(([slot,item])=>[
     escape(human(saveShort(slot))),wikiSaveRef('Item',item.id),item.quantity>1?numericCell(item.quantity):'—'
-  ]),true)):'';
-  const gear=slots('Equipped for combat',save.equipment.slots)+[...save.equipment.loadouts].map(([id,v])=>slots(escape(human(saveShort(id))),v)).join('')+
-    [...save.toolbelts].map(([id,v])=>slots(escape(human(id))+' toolbelt',v)).join('');
+  ]),true),open):'';
+  const gear=slots('Equipped for combat',save.equipment.slots,true)+[...save.equipment.loadouts].map(([id,v])=>slots(escape(human(saveShort(id))),v)).join('')+
+    [...save.toolbelts].map(([id,v])=>slots(escape(human(id))+' toolbelt',v,true)).join('');
   const selections=[['Combat food','Item',save.combatFood],['Thieving food','Item',save.thievingFood],['Agility food','Item',save.agilityFood],
     ['Fishing bait','Item',save.fishingBait],['Spell','MagicSpell',save.magic[0]],['Imbuement','Imbuement',save.magic[1]]].filter(row=>row[2]);
   return (tabDetails||gear||selections.length) ? wikiSaveSection('save-inventory','Bank and equipment',
@@ -269,7 +269,7 @@ function wikiSaveStats(save) {
 }
 
 function wikiSaveReport(save) {
-  const analysis=wikiSaveAdvice(save), date = new Date(Number((save.ticks-621355968000000000n)/10000n));
+  const analysis=wikiSaveAdvice(save);
   const activeSkill=publicNode('Skill',save.activeSkill);
   const active = [activeSkill?link(activeSkill,true):'',save.activeAction?escape(human(saveShort(save.activeAction))):''].filter(Boolean).join(' · ');
   const balances=[...save.wallet].filter(([id,qty])=>qty!==0n&&id!=='GoldPieces'&&id!=='SlayerCoins');
@@ -282,7 +282,7 @@ function wikiSaveReport(save) {
     return '<a href="#/save?section='+match[1]+'">'+match[2]+'</a>';
   }).join('');
   return '<h2>'+escape(save.character||'Character')+'</h2>'+
-    '<p>'+escape([human(saveShort(save.mode)),save.demo?'Demo':'',Number.isNaN(date.getTime())?'':'Saved '+date.toLocaleString()].filter(Boolean).join(' · '))+'</p>'+
+    '<p>'+escape([human(saveShort(save.mode)),save.demo?'Demo':''].filter(Boolean).join(' · '))+'</p>'+
     '<dl class="save-summary"><div><dt>Total level</dt><dd>'+wikiSaveNumber(save.totalLevel)+'</dd></div>'+
     '<div><dt>Gold</dt><dd>'+wikiSaveGP(save.gold)+'</dd></div>'+
     '<div><dt>Slayer coins</dt><dd>'+wikiSaveInteger.format(save.slayerCoins)+'</dd></div>'+
@@ -319,16 +319,40 @@ function wikiBindSaveFolderHelp(container) {
   });
 }
 
+function wikiSaveCache(mode,file) {
+  return new Promise((resolve,reject)=>{
+    const request=indexedDB.open('melvor-wiki-save',1);
+    let blocked=false;
+    request.onupgradeneeded=()=>request.result.createObjectStore('recent');
+    request.onerror=()=>reject(request.error);
+    request.onblocked=()=>{
+      blocked=true;
+      reject(new Error('Save storage unavailable'));
+    };
+    request.onsuccess=()=>{
+      const db=request.result;
+      if (blocked) { db.close(); return; }
+      const transaction=db.transaction('recent',mode==='read'?'readonly':'readwrite');
+      const store=transaction.objectStore('recent');
+      const operation=mode==='read'?store.get('latest'):mode==='remove'?store.delete('latest'):store.put(file,'latest');
+      transaction.oncomplete=()=>{db.close();resolve(operation.result);};
+      transaction.onabort=()=>{db.close();reject(transaction.error);};
+    };
+  });
+}
+
 function wikiSavePage(params,legacyCombat=false) {
   main.innerHTML='<h1>Save Analyzer</h1><p>Choose your Melvor Idle 2 <code>.sav</code> or <code>.bak</code> to see your progress and compare what you can train or farm now.</p>'+
-    '<p>Your save is processed in this tab. The wiki does not upload the file or keep a copy.</p>'+
+    '<p>Your latest import is remembered on this browser. The file stays on this device. Use <strong>Clear save</strong> to remove it.</p>'+
     '<p><a href="#/save?view=combat" id="save-combat-jump" class="save-combat-action">'+combatSwordsIcon()+'Open Combat Planner</a></p>'+
     '<div class="save-controls"><label for="wiki-save-file">Save file</label><input type="file" id="wiki-save-file" accept=".sav,.bak,application/octet-stream">'+
     '<button type="button" id="wiki-save-clear" hidden>Clear save</button></div>'+wikiSaveFolderHelp()+
-    '<p role="status" aria-live="polite" id="wiki-save-status"></p>'+
+    '<p role="status" aria-live="polite" id="wiki-save-status"></p><p id="wiki-save-date" hidden></p>'+
+    '<p id="wiki-save-cache-status" role="status" hidden></p>'+
     '<div id="wiki-save-report"></div><details id="save-combat-planner"><summary>Combat Planner</summary><div></div></details>';
   const input=main.querySelector('#wiki-save-file'), clear=main.querySelector('#wiki-save-clear');
   const status=main.querySelector('#wiki-save-status'), report=main.querySelector('#wiki-save-report');
+  const savedAt=main.querySelector('#wiki-save-date'), cacheStatus=main.querySelector('#wiki-save-cache-status');
   wikiBindSaveFolderHelp(main);
   const planner=main.querySelector('#save-combat-planner');
   let activeSave=null, combat;
@@ -347,17 +371,30 @@ function wikiSavePage(params,legacyCombat=false) {
     requestAnimationFrame(()=>planner.scrollIntoView({block:'start'}));
   }
   let attempt=0;
+  function cacheMessage(message='') {
+    cacheStatus.textContent=message;
+    cacheStatus.hidden=!message;
+  }
   function resetSave() {
     if(activeSave) combat?.loadSave(null);
     activeSave=null;
     report.replaceChildren();
+    savedAt.hidden=true;
+    savedAt.replaceChildren();
   }
-  clear.addEventListener('click',()=>{
-    ++attempt;
+  clear.addEventListener('click',async ()=>{
+    const current=++attempt;
     input.value='';
     clear.hidden=true;
     status.textContent='';
     resetSave();
+    cacheMessage();
+    try { await wikiSaveCache('remove'); }
+    catch {
+      if (current!==attempt||!report.isConnected) return;
+      clear.hidden=false;
+      cacheMessage('Could not remove the remembered file. Try Clear save again or clear site data in your browser.');
+    }
   });
   report.addEventListener('click',event=>{
     const href=event.target.closest('.save-contents a')?.getAttribute('href');
@@ -365,10 +402,8 @@ function wikiSavePage(params,legacyCombat=false) {
     event.preventDefault();
     report.querySelector('#'+href.split('=').at(-1))?.scrollIntoView({block:'start'});
   });
-  input.addEventListener('change',async () => {
-    const file=input.files[0], current=++attempt;
-    resetSave();
-    if(!file) { clear.hidden=true; status.textContent=''; return; }
+  async function load(file,current,remember) {
+    cacheMessage();
     clear.hidden=false;
     if(file.size<16||file.size>8*1024*1024) { status.textContent='Choose a Melvor Idle 2 .sav or .bak file under 8 MB.'; return; }
     if(location.protocol==='file:') { status.textContent='Open the online wiki or serve this copy over HTTP to use the save decoder.'; return; }
@@ -384,12 +419,40 @@ function wikiSavePage(params,legacyCombat=false) {
       report.replaceChildren(template.content);
       activeSave=save;
       combat?.loadSave(save);
-      status.textContent='Save analyzed.';
+      const date=new Date(Number((save.ticks-621355968000000000n)/10000n));
+      savedAt.replaceChildren('In-game save date ');
+      if (Number.isNaN(date.getTime())||date.getFullYear()<1900) savedAt.append('Unknown');
+      else {
+        const time=document.createElement('time');
+        time.dateTime=date.toISOString();
+        time.textContent=date.toLocaleString('en-GB',{dateStyle:'medium',timeStyle:'short'});
+        savedAt.append(time);
+      }
+      savedAt.hidden=false;
+      if (!remember) cacheMessage('Restored your last import from this browser.');
     } catch(error) {
       if(current!==attempt||!report.isConnected) return;
-      status.textContent=error?.message==='Unsupported save version'
+      status.textContent=!remember?'Could not restore the remembered file. Choose a new save or clear it.':error?.message==='Unsupported save version'
         ? 'This analyzer supports Melvor Idle 2 save versions 31 and 32. This file uses a different version.'
         : 'Could not analyze this save. Try a complete Melvor Idle 2 .sav or .bak file.';
+      return;
     }
+    if (remember) {
+      try { await wikiSaveCache('write',file.slice()); }
+      catch {
+        if (current===attempt&&report.isConnected) cacheMessage('Browser storage is unavailable. This import is available until you close the page.');
+      }
+    }
+    if (current===attempt&&report.isConnected) status.textContent='Save analyzed.';
+  }
+  input.addEventListener('change',()=>{
+    const file=input.files[0];
+    input.value='';
+    if (file) load(file,++attempt,true);
   });
+  if (location.protocol!=='file:') {
+    wikiSaveCache('read').then(file=>{
+      if (file&&attempt===0&&report.isConnected) return load(file,++attempt,false);
+    }).catch(()=>{});
+  }
 }

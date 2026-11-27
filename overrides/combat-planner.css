@@ -131,11 +131,15 @@
   margin-block: .3rem;
 }
 
-.combat-chart span {
+.combat-chart-rate {
   display: grid;
-  grid-template-columns: min-content minmax(0, 1fr) max-content;
+  grid-template-columns: max-content minmax(0, 1fr);
   align-items: center;
   gap: .35rem;
+}
+
+.combat-chart-rate:has(meter) {
+  grid-template-columns: max-content minmax(2rem, 1fr) max-content;
 }
 
 .combat-chart meter { width: 100%; }

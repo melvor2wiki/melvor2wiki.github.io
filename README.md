@@ -8,7 +8,7 @@ Suggest an edit: https://melvor2wiki.github.io/#/suggest
 
 Save Analyzer: https://melvor2wiki.github.io/#/save
 
-Import a Melvor Idle 2 version 31 or 32 `.sav` or `.bak` to compare training and gold routes, view account progress and inspect recorded loot. The file is decoded in the browser and cleared when you leave the page. The analysis page loads the same Brotli decoder for every user and sends no save-derived requests. Its binary layout is adapted from [melvor2sim](https://github.com/jtwilli/melvor2sim). Decoder and parser license notices are in `overrides/save-vendor/`.
+Import a Melvor Idle 2 version 31 or 32 `.sav` or `.bak` to compare training and gold routes, view account progress and inspect recorded loot. The file is decoded in the browser, which remembers only the latest import locally until you use Clear save or remove site data. The analysis page loads the same Brotli decoder for every user and sends no save-derived requests. Its binary layout is adapted from [melvor2sim](https://github.com/jtwilli/melvor2sim). Decoder and parser license notices are in `overrides/save-vendor/`.
 
 Combat Planner in Save Analyzer: https://melvor2wiki.github.io/#/save?view=combat
 
