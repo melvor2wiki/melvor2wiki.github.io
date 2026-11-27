@@ -144,10 +144,33 @@ function wikiSaveThievingMods(save,profile,node) {
   return mods;
 }
 
+function wikiSaveMoneyBoosters(save,profile) {
+  const pools = new Map();
+  const supported = /^(?:DoublingChance|FlatFishChance|IncreasedFishChance|JunkRerollChance|SecondSpecialItemChance|(?:Flat|Increased)SpecialProductChance|FlatSpecialProductQuantity|(?:Flat|Percent)(?:Min|Max)?Interval|GlobalPercentActionInterval|(?:Flat|Percent)ProductQuantity|PreservationChance|PercentIngredientCost|SkipStepChance|DoubleDamageChance|InstantCutChance|WeakSpotChance|(?:Flat|Percent)MaxHealth)$/;
+  return ({skill,n}) => {
+    if (!pools.has(skill)) {
+      const tools = new Set([...(save.toolbelts.get(skill)||new Map()).values()].map(item=>item.id));
+      pools.set(skill,readerBoosterPool(publicNode('Skill',skill)).filter(({node}) => {
+        if (node.type==='Item') return tools.has(node.id)&&!node.data.Capabilities?.['MelvorBase:Toolbelt']?.ConsumesOn?.length;
+        if (node.type==='AstrologyNode') return profile.nodes.has(node.id);
+        if (node.type==='Pet') return profile.petIds.has(node.id);
+        if (node.type==='ShopPurchase') return save.shop.get(node.id)>0;
+        return node.type==='MasteryGuildBonus' && profile.eligible(node,skill);
+      }));
+    }
+    const scope = {Recipe:n.id,Category:n.data.Category,Subcategory:n.data.Subcategory,Location:n.data.Location,RecipeType:n.data.RecipeType};
+    return pools.get(skill).map(({node,mods})=>({node,mods:mods.filter(m=>
+      supported.test(m.Stat?.Name||m.StatGroup) && !m.Condition && !m.Scaling && !m.FromContext &&
+      Object.entries(m.LocalContext||{}).every(([k,v])=>!v||k==='Component'||k==='Item'||scope[k]===v))
+    })).filter(x=>x.mods.length);
+  };
+}
+
 function wikiSaveAdvice(save) {
   const profile = wikiSaveProfile(save);
   profile.mining = wikiSaveMining(save,profile);
   const model = moneySourceModel(null,null,null,false,profile);
+  const getBoosters = wikiSaveMoneyBoosters(save,profile);
   const training = new Map(), gold = [];
   for (const [skill,xp] of save.skills) {
     if (['Farming','Ranching','Agility','Hunting'].includes(skill)) continue;
@@ -214,20 +237,26 @@ function wikiSaveAdvice(save) {
     if (inputs.some(i => !i.path)) continue;
     const mining = entry.skill==='Mining' ? profile.mining(entry.n) : null;
     const active = mining?.active ?? entry.seconds;
-    const cycle = entry.group==='Thieving'
+    let cycle = entry.group==='Thieving'
       ? moneyThievingCycle(entry.n,level,wikiSaveThievingMods(save,profile,entry.n),model)
       : {gp:mining ? mining.quantity*moneyQuote(entry.n.data.Product.Item) : entry.gross*moneySuccess(entry,level),actionSeconds:active,inputs,
         cash:(ingredients.Currencies||[]).reduce((sum,c)=>sum+c.Quantity,0)+inputs.reduce((sum,i)=>sum+i.qty*i.path.cash,0),
         seconds:active+inputs.reduce((sum,i)=>sum+i.qty*i.path.seconds,0)};
+    let boosters = [];
+    if (cycle && (entry.skill==='Fishing'||entry.skill==='Woodcutting'||entry.n.type==='ArtisanRecipe')) {
+      boosters = getBoosters(entry);
+      // A saved priority-catch choice is not decoded, so use ordinary fishing.
+      const combined = moneyCombinationCycle(entry,level,boosters,cycle,false);
+      if (combined && Number.isFinite(combined.gp) && combined.seconds>0) cycle = combined;
+      else boosters = [];
+    }
     const rate = moneyCycleHourly(cycle);
-    if (rate>0) gold.push({entry,cycle,rate,level});
+    if (rate>0 && Number.isFinite(rate)) gold.push({entry,cycle,rate,level,boosters});
   }
   return {profile,training,gold:gold.sort((a,b)=>b.rate-a.rate)};
 }
 
-function wikiSaveEnemyLoot(enemy,record) {
-  const loot = enemy.data.Drops;
-  const tables = loot?.ItemTables || [];
+function wikiSaveExpectedLoot(tables,excluded,record) {
   const byItem = new Map();
   for (const {Chance=1,Table=[]} of tables) {
     const total = Table.reduce((sum,item)=>sum+(item.Weight||0),0);
@@ -249,10 +278,9 @@ function wikiSaveEnemyLoot(enemy,record) {
       byItem.set(id,roll);
     }
   }
-  const fixed = new Set((loot?.FixedItems||[]).map(row => row.Item));
-  return [...byItem].filter(([id,{miss}]) => !fixed.has(id) && miss>0 && miss<1).map(([id,roll]) => {
+  return [...byItem].filter(([id,{miss}]) => !excluded.has(id) && miss>0 && miss<1).map(([id,roll]) => {
     const observed = record.items.get(id)||0;
-    return {id,observed,expected:record.kills*roll.units,p:1-roll.miss,
-      dry:observed===0 ? Math.exp(record.kills*Math.log(roll.miss)) : null};
+    return {id,observed,expected:record.count*roll.units,p:1-roll.miss,
+      dry:observed===0 ? Math.exp(record.count*Math.log(roll.miss)) : null};
   });
 }

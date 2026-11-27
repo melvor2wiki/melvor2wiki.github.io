@@ -46,53 +46,89 @@ function wikiSaveTraining(save,analysis) {
 function wikiSaveMoney(analysis) {
   const rows=analysis.gold.slice(0,15).map(({entry,cycle,rate,level}) => [
     moneyStrategyLink(entry,level),
-    moneyRequiredSkills(entry,cycle.inputs),{value:rate,html:wikiSaveGP(rate)},wikiSaveDuration(cycle.actionSeconds),
+    moneyRequiredSkills(entry,cycle.inputs),{sort:rate,numeric:true,html:wikiSaveGP(rate)},wikiSaveDuration(cycle.actionSeconds),
     wikiSaveDuration(cycle.seconds-cycle.actionSeconds)
   ]);
-  const breakdown=analysis.gold.slice(0,5).map(({entry,cycle,rate,level}) => {
+  const breakdown=analysis.gold.slice(0,5).map(({entry,cycle,rate,level,boosters}) => {
     const activeShare=cycle.actionSeconds/cycle.seconds;
     return wikiSaveDetails(escape(moneyStrategyName(entry)), '<p><strong>'+wikiSaveGP(rate)+'/h net</strong> = '+
       wikiSaveGP(cycle.gp*3600/cycle.seconds)+'/h gross − '+wikiSaveGP(cycle.cash*3600/cycle.seconds)+'/h in recurring costs.</p>'+
       '<p>In an average hour, spend '+wikiSaveDuration(3600*activeShare)+' on the main action and '+
       wikiSaveDuration(3600*(1-activeShare))+' replacing supplies.</p>'+
-      (cycle.inputs.length?moneyRouteTable(cycle.inputs):'')+'<p>'+moneyStrategyLink(entry,level)+'</p>');
+      (cycle.inputs.length?moneyRouteTable(cycle.inputs):'')+
+      (boosters.length?table(['Booster used','Effect'],boosters.map(({node,mods})=>[readerBoosterName(node),
+        mods.map(mod=>mod.Stat?wikiBonusText(mod,node):wikiAllBonusText({Global:[mod]},node)).join('<br>')
+      ]),true):'')+'<p>'+moneyStrategyLink(entry,level)+'</p>');
   }).join('');
   return wikiSaveSection('save-gold','Money making',
-    '<p>Best repeatable routes currently available out of the modeled methods. Profit is gold and sale value minus recurring GP costs. The hourly rate includes gathering, crafting and food replacement where applicable. Keep any supplies you need for other goals.</p>'+
+    '<p>Best repeatable routes currently available out of the modeled methods. Profit is gold and sale value minus recurring GP costs. The hourly rate includes gathering, crafting and food replacement where applicable. Supported permanent and equipped boosters apply to the main action when the save confirms them.</p>'+
     (rows.length?table(['Strategy','Required skills','Est. net GP/h','Action per cycle','Supply time per cycle'],rows):'<p>No repeatable GP route could be verified for this save.</p>')+
     (breakdown?'<h3>Profit breakdown</h3>'+breakdown:'')+
     '<p>Strategy pages offer separate setup comparisons. Combat history below shows what your own fights earned.</p>');
 }
 
 function wikiSaveCombatHistory(save) {
-  const records=[...save.combat].filter(([,r])=>r.kills>0);
+  const records=[...save.combat].filter(([,r])=>r.count>0);
   if (!records.length) return '';
-  const totalKills=records.reduce((sum,[,r])=>sum+r.kills,0);
+  const totalKills=records.reduce((sum,[,r])=>sum+r.count,0);
   const totalTime=records.reduce((sum,[,r])=>sum+Math.max(0,r.time),0);
-  const rows=records.sort(([,a],[,b])=>b.kills-a.kills).map(([id,r]) => {
+  const rows=records.sort(([,a],[,b])=>b.count-a.count).map(([id,r]) => {
     const gp=r.currency.get('GoldPieces')||0n;
     const gross=Number(gp)+[...r.items].reduce((sum,[item,qty])=>sum+qty*moneyQuote(item),0);
     const xp=[...r.xp.values()].reduce((a,b)=>a+b,0);
     const details=wikiSaveDetails('View history','<p>Direct gold '+wikiSaveGP(gp)+'</p>'+
       (r.currency.size>1?'<p>'+[...r.currency].filter(([id])=>id!=='GoldPieces').map(([id,qty])=>wikiSaveRef('Currency',id)+' ×'+wikiSaveInteger.format(qty)).join('<br>')+'</p>':'')+
       '<p>'+wikiSaveItemCounts(r.items)+'</p><p>'+[...r.xp].map(([skill,value])=>wikiSaveRef('Skill',skill)+' '+wikiSaveNumber(value)+' XP').join('<br>')+'</p>');
-    return [wikiSaveRef('Enemy',id),numericCell(r.kills),wikiSaveDuration(r.time),wikiSaveDuration(r.time>0?r.time/r.kills:NaN),
+    return [wikiSaveRef('Enemy',id),numericCell(r.count),wikiSaveDuration(r.time),wikiSaveDuration(r.time>0?r.time/r.count:NaN),
       r.time>0?wikiSaveGP(gross*3600/r.time):'—',r.time>0?numericCell(xp*3600/r.time):'—',details];
   });
   return wikiSaveSection('save-combat','Combat history','<p><strong>'+wikiSaveNumber(totalKills)+' kills</strong> in '+wikiSaveDuration(totalTime)+
-    ' of recorded fight time. GP/h is gross and excludes downtime, ammunition, food and other supplies. XP/h sums all skills that received XP.</p>'+
+    ' of fight time in the game’s retained loot history. GP/h is gross and excludes downtime, ammunition, food and other supplies. XP/h sums all skills that received XP.</p>'+
     table(['Monster','Kills','Fight time','Avg. kill','Gross GP/h','Total XP/h','Loot and XP'],rows,true));
 }
 
-function wikiSaveLuck(save) {
-  const rows=[];
+function wikiSaveThievingHistory(save) {
+  const rows=[...save.thieving].filter(([,r])=>r.count>0).sort(([,a],[,b])=>b.count-a.count).map(([id,r])=>{
+    const gp = r.currency.get('GoldPieces')||0n;
+    const loot = [...r.items].reduce((sum,[id,quantity])=>sum+moneyQuote(id)*quantity,0);
+    return [wikiSaveRef('ThievingRecipe',id),numericCell(r.count),wikiSaveDuration(r.active),wikiSaveDuration(r.stunned),
+      wikiSaveGP(gp),wikiSaveGP(loot),numericCell(r.xp.get('MelvorBase:Thieving')||0),
+      wikiSaveDetails('Items',wikiSaveItemCounts(r.items))];
+  });
+  return rows.length ? wikiSaveSection('save-thieving','Thieving history',
+    '<p>Successful stages, loot and recorded stun time for targets still in the game’s loot history. The clock in this log does not include every failed action.</p>'+
+    table(['Target','Successful stages','Time stealing','Time stunned','Direct gold','Loot sale value','XP','Loot'],rows,true)) : '';
+}
+
+function wikiSaveLuck(save,analysis) {
+  const rows=[], thieving=[];
   for (const [id,record] of save.combat) {
     const stats=payload.monsters.enemies[bare(id)], node=publicNode('Enemy',id);
-    if (!node || !stats?.locations?.length || !stats.locations.every(x=>x.type==='CombatArea') || !(record.kills>0)) continue;
-    for (const drop of wikiSaveEnemyLoot(node,record)) rows.push([node,drop,record.kills]);
+    if (!node || !stats?.locations?.length || !stats.locations.every(x=>x.type==='CombatArea') || !(record.count>0)) continue;
+    const loot = node.data.Drops;
+    for (const drop of wikiSaveExpectedLoot(loot?.ItemTables||[],new Set((loot?.FixedItems||[]).map(x=>x.Item)),record)) {
+      rows.push([node,drop,record.count]);
+    }
   }
-  rows.sort(([,a],[,b])=>(a.dry??1)-(b.dry??1)||b.expected-a.expected);
+  for (const [id,record] of save.thieving) {
+    const node = publicNode('ThievingRecipe',id);
+    if (!node || record.count<=0) continue;
+    const d = node.data;
+    const tables = [
+      {Chance:d.BaseCommonLootChance,Table:d.CommonDropTable},
+      {Chance:d.BaseRareLootChance,Table:d.RareDropTable}
+    ];
+    const completion = new Set((d.CompletionDropTable||[]).map(x=>x.Item));
+    for (const drop of wikiSaveExpectedLoot(tables,completion,record)) thieving.push([node,drop,record.count]);
+  }
   const percent=p=>p===0?'≈0%':publicChanceDisplay(p);
+  const dropComparison = (entries,source,basis) => {
+    entries.sort(([,a],[,b])=>(a.dry??1)-(b.dry??1)||b.expected-a.expected);
+    return wikiSaveDetails('Compare '+wikiSaveNumber(entries.length)+' drops',
+      table([source,'Item',basis,'Base chance per roll','Recorded qty','Avg. expected qty','Chance of zero'],
+        entries.map(([node,d,count])=>[link(node,true),wikiSaveRef('Item',d.id),numericCell(count),percent(d.p),
+          numericCell(d.observed),numericCell(d.expected),d.dry==null?'—':percent(d.dry)]),true));
+  };
   const pets=[];
   for (const [skill,entries] of save.pets) {
     for (const [id,unlocked] of entries) {
@@ -102,19 +138,37 @@ function wikiSaveLuck(save) {
       if (!pet) continue;
       const eligibleSkill=saveShort(trigger?.Data?.Component?.Entity||'');
       const chance=scale>0 && Number.isFinite(xp) && eligibleSkill===skill ? -Math.expm1(-xp/scale) : null;
+      const rate=analysis.training.get(skill)?.[0]?.sustain;
+      const timeAt = p => !unlocked&&chance!=null&&rate>0 ? wikiSaveDuration(-Math.log1p(-p)*scale/rate) : '—';
       pets.push([link(pet,true),wikiSaveRef('Skill',skill),unlocked?'Unlocked':'Locked',
         chance==null?'—':numericCell(xp),chance==null?'—':percent(chance),
-        chance==null||unlocked?'—':percent(1-chance)]);
+        timeAt(.5),timeAt(.99)]);
     }
   }
-  if (!rows.length && !pets.length) return '';
+  if (!rows.length && !thieving.length && !pets.length) return '';
   return wikiSaveSection('save-luck','Drops and luck',
     (rows.length?'<h3>Monster drops</h3><p>Compare recorded quantities with an unboosted average. A dry streak is the chance of zero drops across the recorded kills at base odds. Historical boosters and eligibility can change that comparison.</p>'+
-      wikiSaveDetails('Compare '+wikiSaveNumber(rows.length)+' monster drops',table(['Monster','Item','Kills','Base chance/kill','Recorded qty','Avg. expected qty','Chance of zero'],rows.map(([node,d,kills])=>[
-        link(node,true),wikiSaveRef('Item',d.id),numericCell(kills),percent(d.p),numericCell(d.observed),numericCell(d.expected),d.dry==null?'—':percent(d.dry)
-      ]),true)):'')+
-    (pets.length?'<h3>Pets</h3><p>XP estimates use lifetime XP as a proxy for eligible XP, with the small-roll approximation. The save does not store the individual rolls or the XP at which a pet unlocked.</p>'+
-      table(['Pet','Skill','Status','Skill XP','Approx. chance by now','Approx. chance still missing'],pets,true):''));
+      dropComparison(rows,'Monster','Kills'):'')+
+    (thieving.length?'<h3>Thieving drops</h3><p>Base odds already include the chance that the common or rare table rolls. Comparisons use recorded successful stages. Completion rewards and historical loot buffs need separate data.</p>'+
+      dropComparison(thieving,'Target','Successful stages'):'')+
+    (pets.length?'<h3>Pets</h3><p>Lifetime XP approximates eligible XP. Time from here uses the recommended sustainable XP rate. Each eligible roll is independent, so past misses do not improve future odds. The save does not store individual rolls or the XP at unlock.</p>'+
+      table(['Pet','Skill','Status','Skill XP','Approx. chance by now','50% from now','99% from now'],pets,true):''));
+}
+
+function wikiSaveTimeHistory(save) {
+  const get = (id,key) => save.stats.get(id)?.values.get('MelvorBase:'+key)||0;
+  const rows = [...save.stats.keys()].filter(id=>get(id,id+'TotalTimeSpent')>0).map(id=>[
+    publicNode('Skill',id)?wikiSaveRef('Skill',id):escape(human(id)),
+    wikiSaveDuration(get(id,id+'TotalTimeSpent')/1000),
+    wikiSaveDuration(get(id,id+'OnlineTimeSpent')/1000),
+    wikiSaveDuration(get(id,id+'OfflineTimeSpent')/1000)
+  ]);
+  const total = get('CharacterStatistics','TotalTrainingTime');
+  if (!total && !rows.length) return '';
+  return wikiSaveSection('save-time','Time spent',
+    (total?'<p>Recorded training time <strong>'+wikiSaveDuration(total/1000)+'</strong>. Idling without an action <strong>'+
+      wikiSaveDuration(get('CharacterStatistics','TotalNothingTime')/1000)+'</strong>.</p>':'')+
+    (rows.length?table(['Activity','Total','Online','Offline'],rows,true):''));
 }
 
 function wikiSaveInventory(save,profile) {
@@ -201,8 +255,8 @@ function wikiSaveReport(save) {
   const active = [activeSkill?link(activeSkill,true):'',save.activeAction?escape(human(saveShort(save.activeAction))):''].filter(Boolean).join(' · ');
   const balances=[...save.wallet].filter(([id,qty])=>qty!==0n&&id!=='GoldPieces'&&id!=='SlayerCoins');
   const sections=[
-    wikiSaveTraining(save,analysis),wikiSaveMoney(analysis),wikiSaveCombatHistory(save),wikiSaveLuck(save),
-    wikiSaveInventory(save,analysis.profile),wikiSaveProgress(save,analysis.profile),wikiSaveStats(save)
+    wikiSaveTraining(save,analysis),wikiSaveMoney(analysis),wikiSaveCombatHistory(save),wikiSaveThievingHistory(save),wikiSaveLuck(save,analysis),
+    wikiSaveTimeHistory(save),wikiSaveInventory(save,analysis.profile),wikiSaveProgress(save,analysis.profile),wikiSaveStats(save)
   ].filter(Boolean);
   const contents=sections.map(section=>{
     const match=section.match(/^<section id="([^"]+)"><h2>([^<]+)<\/h2>/);
@@ -220,9 +274,9 @@ function wikiSaveReport(save) {
 }
 
 function wikiSavePage() {
-  main.innerHTML='<h1>Save Analyzer</h1><p>Choose your Melvor Idle 2 <code>.sav</code> to see your progress and compare what you can train or farm now.</p>'+
+  main.innerHTML='<h1>Save Analyzer</h1><p>Choose your Melvor Idle 2 <code>.sav</code> or <code>.bak</code> to see your progress and compare what you can train or farm now.</p>'+
     '<p>Your save is processed in this tab. The wiki does not upload the file or keep a copy.</p>'+
-    '<div class="save-controls"><label for="wiki-save-file">Save file</label><input type="file" id="wiki-save-file" accept=".sav,application/octet-stream">'+
+    '<div class="save-controls"><label for="wiki-save-file">Save file</label><input type="file" id="wiki-save-file" accept=".sav,.bak,application/octet-stream">'+
     '<button type="button" id="wiki-save-clear" hidden>Clear save</button></div>'+
     '<p role="status" aria-live="polite" id="wiki-save-status"></p><div id="wiki-save-report"></div>';
   const input=main.querySelector('#wiki-save-file'), clear=main.querySelector('#wiki-save-clear');
@@ -246,7 +300,7 @@ function wikiSavePage() {
     report.replaceChildren();
     if(!file) { clear.hidden=true; status.textContent=''; return; }
     clear.hidden=false;
-    if(file.size<16||file.size>8*1024*1024) { status.textContent='Choose a Melvor Idle 2 .sav file under 8 MB.'; return; }
+    if(file.size<16||file.size>8*1024*1024) { status.textContent='Choose a Melvor Idle 2 .sav or .bak file under 8 MB.'; return; }
     if(location.protocol==='file:') { status.textContent='Open the online wiki or serve this copy over HTTP to use the save decoder.'; return; }
     status.textContent='Reading save and comparing routes…';
     try {
@@ -262,8 +316,8 @@ function wikiSavePage() {
     } catch(error) {
       if(current!==attempt||!report.isConnected) return;
       status.textContent=error?.message==='Unsupported save version'
-        ? 'This analyzer currently supports Melvor Idle 2 save version 31. This file uses a different version.'
-        : 'Could not analyze this save. Try a complete Melvor Idle 2 .sav file.';
+        ? 'This analyzer supports Melvor Idle 2 save versions 31 and 32. This file uses a different version.'
+        : 'Could not analyze this save. Try a complete Melvor Idle 2 .sav or .bak file.';
     }
   });
 }

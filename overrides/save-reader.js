@@ -94,13 +94,14 @@ function wikiSaveSlots(reader, combat = false) {
   }).filter(([,item]) => item));
 }
 
-function wikiSaveBank(reader) {
+function wikiSaveBank(reader, version) {
   reader.i32();
   return reader.list(r => {
     r.take(14);
     const items = r.list(i => ({quantity:i.i32(),placeholder:i.bool(),locked:i.bool(),id:i.str()}));
     const name = r.str();
     r.list(i => { i.bool(); i.bool(); return i.str(); });
+    if (version >= 32) r.optional(); // Custom bank-tab icon.
     return {name,items};
   });
 }
@@ -117,15 +118,17 @@ function wikiSaveStatistics(reader) {
   return {values,groups};
 }
 
-function wikiSaveCombat(reader) {
+function wikiSaveLootHistory(reader, thieving = false) {
   return reader.entries(r => {
-    const id = r.str(), record = r.region(), kills = record.i32();
+    const id = r.str(), record = r.region(), count = record.i32();
     const items = record.entries(row => { const amount = row.i32(); return [row.str(),amount]; });
     const currency = record.entries(row => { const amount = row.i64(); return [saveShort(row.str()),amount]; });
     record.take(8);
     const time = Number(record.i64())/1e7;
     const xp = record.entries(row => { const amount = row.f64(), skill = row.str(); row.str(); return [skill,amount]; });
-    return [id,{kills,items,currency,time,xp}];
+    const active = thieving ? Number(record.i64())/1e7 : time;
+    const stunned = thieving ? Number(record.i64())/1e7 : 0;
+    return [id,{count,items,currency,time,xp,active,stunned}];
   });
 }
 
@@ -170,14 +173,14 @@ function wikiSaveAstrology(reader) {
 
 function wikiSaveParse(bytes) {
   const r = new WikiSaveReader(bytes), version = r.i32();
-  if (version !== 31) throw new Error('Unsupported save version');
+  if (version !== 31 && version !== 32) throw new Error('Unsupported save version');
   r.take(16); // Character ID is deliberately discarded.
   const character=r.str(), mode=r.str(), ticks=r.i64() & 0x3fffffffffffffffn;
   const activeSkill=r.str(); r.str();
   const activeAction=r.str(); r.str();
   const totalLevel=r.i32(), gold=r.i64(), slayerCoins=r.i64(), demo=r.bool();
   const entities = r.entries(row => [saveShort(row.str()),row.region().entries(part => [part.str(),part.region()])]);
-  // Version 31 can have a trailer after the length-prefixed entity array.
+  // Saves can have a trailer after the length-prefixed entity array.
   if (!entities.size) throw new Error('Invalid save structure');
   const save = {version,character,mode,ticks,activeSkill,activeAction,totalLevel,gold,slayerCoins,demo,
     warnings:[],skills:new Map(),toolbelts:new Map(),mastery:new Map(),stats:new Map(),pets:new Map()};
@@ -200,7 +203,7 @@ function wikiSaveParse(bytes) {
     if (pets?.size) save.pets.set(key,pets);
   }
   if (!save.skills.size) throw new Error('Save has no readable skill progress');
-  save.bank = component('Bank','Inventory',wikiSaveBank,[]);
+  save.bank = component('Bank','Inventory',row => wikiSaveBank(row,version),[]);
   save.wallet = component('Bank','Wallet',row => row.entries(c => {
     const amount = c.i64(); return [saveShort(c.str()),amount];
   }),new Map());
@@ -212,7 +215,8 @@ function wikiSaveParse(bytes) {
     const slots = wikiSaveSlots(row,true);
     return {slots,loadouts:row.entries(r => [r.str(),wikiSaveSlots(r.region(),true)])};
   },{slots:new Map(),loadouts:new Map()});
-  save.combat = component('Combat','LootHistory',wikiSaveCombat,new Map());
+  save.combat = component('Combat','LootHistory',wikiSaveLootHistory,new Map());
+  save.thieving = component('Thieving','LootHistory',row => wikiSaveLootHistory(row,true),new Map());
   save.quests = component('Quests','Quests',wikiSaveQuest,new Map());
   save.astrology = component('Astrology','Action',wikiSaveAstrology,new Map());
   save.slayer = component('Slayer','Tasks',row => row.entries(r => {
