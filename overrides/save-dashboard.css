@@ -1,0 +1,44 @@
+.save-controls,
+.save-summary,
+.save-contents {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .65rem 1.25rem;
+  align-items: center;
+}
+
+.save-controls input {
+  max-width: 100%;
+}
+
+.save-controls button[hidden] {
+  display: none;
+}
+
+.save-summary {
+  background: #303740;
+  border: 1px solid #606c7b;
+  padding: .75rem;
+  align-items: start;
+}
+
+.save-summary dd {
+  margin: .25rem 0 0;
+  font-weight: 700;
+}
+
+.save-contents {
+  margin: 1rem 0;
+}
+
+#wiki-save-report details {
+  margin-block: .4rem;
+}
+
+#wiki-save-report details details {
+  margin-inline-start: .7rem;
+}
+
+#wiki-save-report section {
+  scroll-margin-top: 4rem;
+}

@@ -161,6 +161,7 @@ function publicRoute(screen, params) {
     return true;
   }
   if (screen === 'idle') {idlePage(params);return true;}
+  if (screen === 'save') {wikiSavePage();return true;}
   if (screen === 'money') {moneyGuide(params);return true;}
   if (screen === 'pets' || ((screen === 'categoria' || screen === 'famiglia') && /^(pets|Pet)$/.test(params.get('id')))) {formatV2Pets();return true;}
   if (screen === 'guides') {publicGuides();return true;}

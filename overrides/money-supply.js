@@ -28,22 +28,23 @@ function moneyRecurringInputs(node) {
 function moneySuccess(entry,level) {
   return entry.skill==='Cooking'?Math.min(1,(69+level)/(69+entry.n.data.Difficulty)):1;
 }
-function moneySourceModel(level, trainingSkill, trainingLevel, unlocked) {
+function moneySourceModel(level, trainingSkill, trainingLevel, unlocked, character) {
   moneySourceModel.cache ||=new Map();
   const key=trainingSkill ? [level, trainingSkill, trainingLevel, Boolean(unlocked)].join('/') : level;
-  if(moneySourceModel.cache.has(key))return moneySourceModel.cache.get(key);
-  const levelFor=skill=>skill===trainingSkill ? trainingLevel : level;
-  const eligible=node=>trainingSkill ? trainingEligible(node,levelFor,unlocked) : moneyEligible(node,level);
+  if(!character&&moneySourceModel.cache.has(key))return moneySourceModel.cache.get(key);
+  const levelFor=character?.levelFor || (skill=>skill===trainingSkill ? trainingLevel : level);
+  const eligible=character?.eligible || (node=>trainingSkill ? trainingEligible(node,levelFor,unlocked) : moneyEligible(node,level));
   const recipes=[];
   for(const entry of moneyRows()){
-    if(!['Gathering','Crafting'].includes(entry.group)||!eligible(entry.n)||(trainingSkill&&entry.level>levelFor(entry.skill)))continue;
+    if(!['Gathering','Crafting'].includes(entry.group)||!eligible(entry.n)||((trainingSkill||character)&&entry.level>levelFor(entry.skill)))continue;
     const d=entry.n.data;
     const input=d.Ingredients||{},items=moneyRecurringInputs(entry.n);
     if(!items)continue;
-    const outputs=entry.skill==='Fishing'?(d.RandomProducts||[]).map(x=>({
+    const mining=entry.skill==='Mining' && character?.mining?.(entry.n);
+    const outputs=mining?[{Item:d.Product.Item,Quantity:mining.quantity}]:entry.skill==='Fishing'?(d.RandomProducts||[]).map(x=>({
       Item:x.Item,Quantity:moneyAverage(x)*x.Weight/d.RandomProducts.reduce((sum,y)=>sum+y.Weight,0)*(d.FishChance??d.BaseFishChance??0)
     })):d.Products||(d.Product?[d.Product]:[]);
-    recipes.push({node:entry.n,entry,time:entry.seconds,items,cash:(input.Currencies||[]).reduce((sum,x)=>sum+x.Quantity,0),
+    recipes.push({node:entry.n,entry,time:mining?.active??entry.seconds,items,cash:(input.Currencies||[]).reduce((sum,x)=>sum+x.Quantity,0),
       outputs:outputs.map(x=>({id:x.Item,qty:(x.Quantity??1)*(x.Chance??1)*moneySuccess(entry,levelFor(entry.skill))}))});
   }
   for(const n of byType.get('ShopPurchase')||[]){
@@ -65,8 +66,11 @@ function moneySourceModel(level, trainingSkill, trainingLevel, unlocked) {
   const gpPerSecond=Math.max(0,...moneyRows().filter(e=>{
     if(e.group!=='Gathering'||!eligible(e.n))return false;
     const inputs=moneyRecurringInputs(e.n);
-    return inputs && (!trainingSkill || (inputs.length===0 && e.level<=levelFor(e.skill)));
-  }).map(e=>e.gross/e.seconds));
+    return inputs && (!(trainingSkill||character) || (inputs.length===0 && e.level<=levelFor(e.skill)));
+  }).map(e=>{
+    const mining=e.skill==='Mining' && character?.mining?.(e.n);
+    return mining?moneyQuote(e.n.data.Product.Item)*mining.quantity/mining.active:e.gross/e.seconds;
+  }));
   const baseline=Math.max(1/3600,gpPerSecond);
   const paths=new Map(), score=p=>p.seconds+p.cash/baseline;
   for(let pass=0;pass<24;pass++){
@@ -92,6 +96,7 @@ function moneySourceModel(level, trainingSkill, trainingLevel, unlocked) {
     return {path:x,healing};
   }).sort((a,b)=>score(a.path)/a.healing-score(b.path)/b.healing)[0];
   const result={paths,food,gpPerSecond};
+  if (character) return result;
   if (trainingSkill) {
     const trainingKeys = [...moneySourceModel.cache.keys()].filter(key => typeof key === 'string');
     if (trainingKeys.length >= 150) moneySourceModel.cache.delete(trainingKeys[0]);

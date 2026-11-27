@@ -6,6 +6,10 @@ Unofficial Melvor Idle 2 community wiki: items, recipes, sources, uses, skills, 
 
 Suggest an edit: https://melvor2wiki.github.io/#/suggest
 
+Save Analyzer: https://melvor2wiki.github.io/#/save
+
+Import a Melvor Idle 2 version 31 `.sav` to compare training and gold routes, view account progress and inspect recorded combat loot. The file is decoded in the browser and cleared when you leave the page. The analysis page loads the same Brotli decoder for every user and sends no save-derived requests. Its binary layout is adapted from [melvor2sim](https://github.com/jtwilli/melvor2sim). Decoder and parser license notices are in `overrides/save-vendor/`.
+
 Visitors submit directly without an account. Suggestions enter a private Supabase inbox through a write-only endpoint. One daily email digest is scheduled for 12:00 Europe/Rome, including daylight saving time. The digest is also sent when there are zero new suggestions, with the complete-history count and private inbox link. No email address, provider endpoint or private API key is published.
 
 ## GitHub Pages

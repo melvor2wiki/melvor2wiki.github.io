@@ -1,5 +1,5 @@
 """Reconstruct the checked static release without network access or dependencies."""
-import base64,hashlib,io,json,zipfile,os,re
+import base64,hashlib,io,json,zipfile,os,re,shutil
 from pathlib import Path
 root=Path(__file__).resolve().parent
 manifest=json.loads((root/'release-manifest.json').read_text())
@@ -174,6 +174,9 @@ app+='\n'+(root/'overrides/drop-odds.js').read_text(encoding='utf-8')
 app+='\n'+(root/'overrides/drop-calculator.js').read_text(encoding='utf-8')
 app+='\n'+(root/'overrides/training-route.js').read_text(encoding='utf-8')
 app+='\n'+(root/'overrides/mining-training.js').read_text(encoding='utf-8')
+for module in ['save-reader','save-analysis','save-dashboard']:
+    app+='\n'+(root/'overrides'/f'{module}.js').read_text(encoding='utf-8')
+shutil.copytree(root/'overrides/save-vendor',out/'save-vendor',dirs_exist_ok=True)
 app+='\n'+(root/'overrides/analytics.js').read_text(encoding='utf-8')
 community_notice = 'or explore the <a href="#/guides">skill training guides</a>.</p>'
 assert app.count(community_notice) == 1, 'Unexpected community section markup'
@@ -182,19 +185,20 @@ other_nav = '    navGroup("quests"), navGroup("shops"), navGroup("mastery"), nav
 assert app.count(other_nav) == 1
 app = app.replace(other_nav, other_nav + """    moneyNavLink(),
     '<a class="row-link" href="#/idle">' + combatSwordsIcon() + 'Can I Idle?</a>',
+    '<a class="row-link" href="#/save">Save Analyzer</a>',
 """, 1)
 for character in '\u2013\u2014\u2019\u00d7\u00b7':
     assert character.encode('utf-8').decode('cp1252') not in app, 'Corrupted text in app.js'
 app_path.write_text(app,encoding='utf-8')
 style=out/'style.css'
 style.write_text(style.read_text(encoding='utf-8')+'\n'+(root/'overrides/suggest.css').read_text(encoding='utf-8-sig'),encoding='utf-8')
-for module in ['wiki-format','training-guides','entity-pages','skill-cleanup','training-reader','layout-polish','idle-calculator']:
+for module in ['wiki-format','training-guides','entity-pages','skill-cleanup','training-reader','layout-polish','idle-calculator','save-dashboard']:
     style.write_text(style.read_text(encoding='utf-8')+'\n'+(root/'overrides'/f'{module}.css').read_text(encoding='utf-8-sig'),encoding='utf-8')
 html=out/'index.html'
 html.write_text(html.read_text(encoding='utf-8').replace("connect-src 'none'",'connect-src https://ijmztvsjdzypvxnlicbf.supabase.co').replace('<strong>Melvor 2 Wiki</strong>','<strong>MELVOR 2</strong>'),encoding='utf-8')
 markup=html.read_text(encoding='utf-8')
 markup,count=re.subn(r'(<div class="sidebar-group"><h3>Tools</h3>).*?(<a href="https://db\.melvor\.aevv\.net/live"[^<]*</a>)(</div>)',
-    r'\1\2<a href="#/idle">Can I Idle?</a>\3', markup)
+    r'\1\2<a href="#/idle">Can I Idle?</a><a href="#/save">Save Analyzer</a>\3', markup)
 assert count == 1, 'Unexpected sidebar tools markup'
 html.write_text(markup,encoding='utf-8')
 feedback=json.loads((root/'feedback-config.json').read_text(encoding='utf-8-sig'))
@@ -210,8 +214,14 @@ markup=html.read_text(encoding='utf-8')
 placeholder = '<link id="wiki-favicon" rel="icon" type="image/webp">'
 assert markup.count(placeholder) == 1, 'Unexpected favicon markup'
 markup = markup.replace(placeholder,
-    '<link id="wiki-favicon" rel="icon" href="favicon.ico" sizes="16x16 32x32 48x48 64x64 128x128 256x256">\n'
+    '<link id="wiki-favicon" rel="icon" type="image/png" href="favicon.png" sizes="256x256">\n'
     '  <link rel="apple-touch-icon" href="favicon.png">')
+markup = markup.replace('<title>Melvor 2 Wiki</title>',
+    '<title>Melvor 2 Wiki</title>\n'
+    '  <link rel="canonical" href="https://melvor2wiki.github.io/">\n'
+    '  <meta property="og:site_name" content="Melvor 2 Wiki">')
+markup = markup.replace("script-src 'self';", "script-src 'self' 'wasm-unsafe-eval';")
+markup = markup.replace('connect-src https://', "connect-src 'self' https://")
 for filename in ('favicon.ico','favicon.png'):
     (out/filename).write_bytes((root/'overrides'/filename).read_bytes())
 for filename in ['app.js','config.js','style.css','data.js']:
