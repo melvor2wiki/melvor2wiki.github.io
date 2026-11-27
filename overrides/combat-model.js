@@ -36,7 +36,7 @@ function combatPlannerBuild(input) {
   const sources=[
     ...input.equipment.map((item,i)=>({label:item.name,bonuses:equipment[i].Bonuses})),
     {label:input.stance.name,bonuses:stance.Bonuses}, {label:input.prayer?.name,bonuses:prayer?.Bonuses},
-    {label:input.food?.name,bonuses:food?.Bonuses},...activeSets
+    {label:input.food?.name,bonuses:food?.Bonuses?.Modifiers},...activeSets
   ];
   const flatStats=new Map(), percentStats=new Map(), mods=new Map();
   const supported=new Set(['FlatAccuracyRating','PercentAccuracyRating','FlatMaxHit','PercentMaxHit','FlatMinHit','PercentMinHit',
@@ -44,7 +44,9 @@ function combatPlannerBuild(input) {
     'GlobalPercentXpGained','GlobalFlatAutoEatEfficiency','GlobalFlatAutoEatThreshold','GlobalFlatAutoEatLimit']);
   for (const {label,bonuses} of sources.filter(x=>x.bonuses)) {
     if (bonuses.CombatEffect?.length) partial(label+' has a combat effect');
-    for (const m of [...(bonuses.Component||[]),...(bonuses.Global||[])]) {
+    const components=Array.isArray(bonuses.Component)?bonuses.Component:[];
+    const globals=Array.isArray(bonuses.Global)?bonuses.Global:[];
+    for (const m of [...components,...globals]) {
       const name=m.Stat?.Name||m.StatGroup, scope=m.LocalContext||{};
       if (scope.CombatStyle && scope.CombatStyle!==stance.CombatStyle) continue;
       if (scope.AttackStance && scope.AttackStance!==input.stance.id) continue;
