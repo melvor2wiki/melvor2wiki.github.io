@@ -186,7 +186,7 @@ function wikiSaveInventory(save,profile) {
   const gear=slots('Equipped for combat',save.equipment.slots)+[...save.equipment.loadouts].map(([id,v])=>slots(escape(human(saveShort(id))),v)).join('')+
     [...save.toolbelts].map(([id,v])=>slots(escape(human(id))+' toolbelt',v)).join('');
   const selections=[['Combat food','Item',save.combatFood],['Thieving food','Item',save.thievingFood],['Agility food','Item',save.agilityFood],
-    ['Fishing bait','Item',save.fishingBait],['Spell','CombatSpell',save.magic[0]],['Imbuement','Imbuement',save.magic[1]]].filter(row=>row[2]);
+    ['Fishing bait','Item',save.fishingBait],['Spell','MagicSpell',save.magic[0]],['Imbuement','Imbuement',save.magic[1]]].filter(row=>row[2]);
   return (tabDetails||gear||selections.length) ? wikiSaveSection('save-inventory','Bank and equipment',
     (tabDetails?'<p>'+wikiSaveNumber(profile.stock.size)+' distinct items with '+wikiSaveGP(price)+' total base sell value.</p>'+tabDetails:'')+
     (gear?'<h3>Equipment, toolbelts and loadouts</h3>'+gear:'')+

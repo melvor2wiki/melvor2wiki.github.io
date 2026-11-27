@@ -34,6 +34,30 @@ with zipfile.ZipFile(root / 'release/artwork-refresh.zip') as artwork:
     for old in old_paths - set(payload['images'].values()):
         assert re.fullmatch(r'assets/\d+\.webp', old)
         (out / old).unlink()
+patch_bytes = (root / 'release/game-26886380.zip').read_bytes()
+assert hashlib.sha256(patch_bytes).hexdigest() == 'de114adf37a8345be04b80d2e8c3219adb9257c3cf1d181ef58edd1e58c72201'
+with zipfile.ZipFile(io.BytesIO(patch_bytes)) as patch:
+    delta = json.loads(patch.read('delta.json'))
+    assert payload['build'] == delta['from'], 'Game patch requires a different base build'
+    payload['build'] = delta['build']
+    payload['gameVersion'] = delta['version']
+    payload['game']['EntityConfig'].update(delta['config'])
+    for kind, changes in delta['types'].items():
+        rows = {row['Id']: row for row in payload['game']['Objects'].get(kind, [])}
+        for removed in changes['removed']:
+            del rows[removed]
+        rows.update((row['Id'], row) for row in changes['updated'])
+        order = changes.get('order', rows.keys())
+        assert len(order) == len(rows)
+        payload['game']['Objects'][kind] = [rows[key] for key in order]
+    for key in ('guides','monsters'):
+        payload[key] = json.loads(patch.read(key+'.json'))
+    for target in set(delta['imagePaths'].values()):
+        assert re.fullmatch(r'assets/patch-[a-f0-9]{20}\.webp', target)
+        asset = patch.read(target)
+        assert hashlib.sha256(asset).hexdigest()[:20] == Path(target).stem.removeprefix('patch-')
+        (out / target).write_bytes(asset)
+    payload['images'].update(delta['imagePaths'])
 data_path.write_text(prefix + '= ' + json.dumps(json.dumps(payload, separators=(',', ':'))) + ';\n', encoding='utf-8')
 
 # Reader-facing form changes are maintained separately from the large game-data release.
@@ -174,7 +198,7 @@ app+='\n'+(root/'overrides/drop-odds.js').read_text(encoding='utf-8')
 app+='\n'+(root/'overrides/drop-calculator.js').read_text(encoding='utf-8')
 app+='\n'+(root/'overrides/training-route.js').read_text(encoding='utf-8')
 app+='\n'+(root/'overrides/mining-training.js').read_text(encoding='utf-8')
-for module in ['save-reader','save-analysis','save-dashboard']:
+for module in ['save-reader','save-analysis','save-dashboard','combat-model','combat-planner','patch-current']:
     app+='\n'+(root/'overrides'/f'{module}.js').read_text(encoding='utf-8')
 shutil.copytree(root/'overrides/save-vendor',out/'save-vendor',dirs_exist_ok=True)
 app+='\n'+(root/'overrides/analytics.js').read_text(encoding='utf-8')
@@ -185,20 +209,22 @@ other_nav = '    navGroup("quests"), navGroup("shops"), navGroup("mastery"), nav
 assert app.count(other_nav) == 1
 app = app.replace(other_nav, other_nav + """    moneyNavLink(),
     '<a class="row-link" href="#/idle">' + combatSwordsIcon() + 'Can I Idle?</a>',
+    '<a class="row-link" href="#/combat-planner">Combat Planner</a>',
     '<a class="row-link" href="#/save">Save Analyzer</a>',
 """, 1)
+app = app.replace("escape(payload.build) + '</div>'", "escape(payload.build) + ' · <a href=\"#/patch\">' + escape(payload.gameVersion) + '</a></div>'", 1)
 for character in '\u2013\u2014\u2019\u00d7\u00b7':
     assert character.encode('utf-8').decode('cp1252') not in app, 'Corrupted text in app.js'
 app_path.write_text(app,encoding='utf-8')
 style=out/'style.css'
 style.write_text(style.read_text(encoding='utf-8')+'\n'+(root/'overrides/suggest.css').read_text(encoding='utf-8-sig'),encoding='utf-8')
-for module in ['wiki-format','training-guides','entity-pages','skill-cleanup','training-reader','layout-polish','idle-calculator','save-dashboard']:
+for module in ['wiki-format','training-guides','entity-pages','skill-cleanup','training-reader','layout-polish','idle-calculator','save-dashboard','combat-planner']:
     style.write_text(style.read_text(encoding='utf-8')+'\n'+(root/'overrides'/f'{module}.css').read_text(encoding='utf-8-sig'),encoding='utf-8')
 html=out/'index.html'
 html.write_text(html.read_text(encoding='utf-8').replace("connect-src 'none'",'connect-src https://ijmztvsjdzypvxnlicbf.supabase.co').replace('<strong>Melvor 2 Wiki</strong>','<strong>MELVOR 2</strong>'),encoding='utf-8')
 markup=html.read_text(encoding='utf-8')
 markup,count=re.subn(r'(<div class="sidebar-group"><h3>Tools</h3>).*?(<a href="https://db\.melvor\.aevv\.net/live"[^<]*</a>)(</div>)',
-    r'\1\2<a href="#/idle">Can I Idle?</a><a href="#/save">Save Analyzer</a>\3', markup)
+    r'\1\2<a href="#/idle">Can I Idle?</a><a href="#/combat-planner">Combat Planner</a><a href="#/save">Save Analyzer</a><a href="#/patch">Patch Notes</a>\3', markup)
 assert count == 1, 'Unexpected sidebar tools markup'
 html.write_text(markup,encoding='utf-8')
 feedback=json.loads((root/'feedback-config.json').read_text(encoding='utf-8-sig'))

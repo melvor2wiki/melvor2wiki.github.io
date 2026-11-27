@@ -51,5 +51,11 @@ function cleanHerbloreSections(skill, actions) {
 }
 function wikiSkillCoreSections(skill,actions) {
   if (bare(skill.id)==='Astrology') return astrologyOverview();
-  return bare(skill.id)==='Herblore'?cleanHerbloreSections(skill,actions):cleanOriginalCoreSections(skill,actions);
+  if (bare(skill.id)==='Herblore') return cleanHerbloreSections(skill,actions);
+  const sections=cleanOriginalCoreSections(skill,actions);
+  if (bare(skill.id)==='Thieving') {
+    const distractions=wikiThievingDistractions();
+    if (distractions) sections.push(['distractions','Distractions',distractions]);
+  }
+  return sections;
 }

@@ -1,0 +1,61 @@
+.combat-setups,
+.combat-detail {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 24rem), 1fr));
+  gap: 1rem;
+}
+
+.combat-fields {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: .6rem 1rem;
+  margin-block: .45rem;
+}
+
+.combat-fields label {
+  display: grid;
+  gap: .3rem;
+}
+
+.combat-fields .combat-toggle {
+  display: flex;
+  align-items: center;
+}
+
+.combat-fields input[type="number"] { inline-size: 6rem; }
+.combat-fields select { max-inline-size: min(16rem, 70vw); }
+.combat-fields input[type="file"] { max-inline-size: 100%; }
+.combat-setups fieldset,
+.combat-detail > div { min-inline-size: 0; }
+.combat-setup[hidden] { display: none; }
+.combat-setup details { margin-block: .6rem; }
+.combat-key-stats { padding-block: .4rem; }
+.combat-target { padding: .15rem .35rem; color: var(--link, #1896d9); }
+#combat-target-detail { scroll-margin-top: 4rem; }
+
+.combat-chart {
+  max-width: 54rem;
+  padding-bottom: .75rem;
+}
+
+.combat-chart > div {
+  display: grid;
+  grid-template-columns: minmax(7rem, 15rem) repeat(2, minmax(0, 1fr));
+  align-items: center;
+  gap: .45rem;
+  margin-block: .3rem;
+}
+
+.combat-chart span {
+  display: grid;
+  grid-template-columns: min-content minmax(0, 1fr) max-content;
+  align-items: center;
+  gap: .35rem;
+}
+
+.combat-chart meter { width: 100%; }
+
+@media (max-width: 640px) {
+  .combat-chart > div { grid-template-columns: minmax(0, 1fr); gap: .15rem; }
+}
