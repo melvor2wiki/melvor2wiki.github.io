@@ -15,6 +15,32 @@
   display: none;
 }
 
+.save-folder {
+  margin-block: .75rem 1rem;
+}
+
+.save-folder-path {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .4rem;
+  margin-top: .45rem;
+}
+
+.save-folder-path input {
+  box-sizing: border-box;
+  width: 45ch;
+  max-width: 100%;
+  font-family: monospace;
+}
+
+.save-folder ol {
+  margin-block: .45rem;
+}
+
+.save-folder-status:empty {
+  margin: 0;
+}
+
 .save-summary {
   background: #303740;
   border: 1px solid #606c7b;

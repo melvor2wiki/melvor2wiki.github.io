@@ -206,7 +206,7 @@ function combatPlannerPage(params) {
     '<form id="combat-planner"><div class="combat-fields">'+
     '<label>Import save into setup A<input type="file" id="combat-import" accept=".sav,.bak"></label><span role="status" id="combat-import-status"></span>'+
     '<label class="combat-toggle"><input type="checkbox" name="compare"> Compare setup B</label>'+
-    '<button type="button" id="combat-copy">Copy A to B</button></div>'+
+    '<button type="button" id="combat-copy">Copy A to B</button></div>'+wikiSaveFolderHelp()+
     '<div class="combat-setups">'+combatPlannerSetup('A')+combatPlannerSetup('B')+'</div>'+
     '<fieldset><legend>Targets and ranking</legend><div class="combat-fields">'+
     '<label>Category<select name="category">'+combatOption('','All targets')+categories.map(x=>combatOption(x,x)).join('')+'</select></label>'+
@@ -219,6 +219,7 @@ function combatPlannerPage(params) {
     '<p>Special attacks, ward, effects and unsupported bonuses use a normal-attack benchmark. Dungeon and Slayer results combine individual fight rates; they do not give a death rate for a complete run. Costs use base sale prices and exclude prayer points and charge savings.</p>'+
     '<p>The independently developed <a href="https://www.nexusmods.com/melvoridle2/mods/39">Combat Simulator 2</a> runs fights inside the desktop game. Check its release compatibility before using it.</p></section>';
   const form=main.querySelector('#combat-planner'), configs=[...form.querySelectorAll('.combat-setup')];
+  wikiBindSaveFolderHelp(form);
   const feedback=main.querySelector('#combat-run-status'), results=main.querySelector('#combat-results'), detail=main.querySelector('#combat-target-detail');
   const importStatus=main.querySelector('#combat-import-status');
   const field=(root,name)=>root.querySelector('[name="'+name+'"]');

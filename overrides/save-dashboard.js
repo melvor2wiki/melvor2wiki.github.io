@@ -273,14 +273,42 @@ function wikiSaveReport(save) {
     '<nav class="save-contents" aria-label="Report sections">'+contents+'</nav>'+sections.join('');
 }
 
+function wikiSaveFolderHelp() {
+  const path = String.raw`%APPDATA%\Games By Malcs\Melvor Idle 2\steam`;
+  return '<div class="save-folder"><strong>Find your Steam save on Windows</strong>'+
+    '<div class="save-folder-path"><input type="text" aria-label="Windows save folder" value="'+escape(path)+'" readonly spellcheck="false">'+
+    '<button type="button" data-copy-save-folder>Copy folder path</button></div>'+
+    '<ol><li>Copy the folder path, then click <strong>Choose File</strong>.</li>'+
+    '<li>In the file window, press <kbd>Alt</kbd> + <kbd>D</kbd>, paste the path and press <kbd>Enter</kbd>.</li>'+
+    '<li>Open the numbered Steam folder and select your <code>.sav</code>. Use <code>.bak</code> to read a backup.</li></ol>'+
+    '<p class="save-folder-status" role="status"></p></div>';
+}
+
+function wikiBindSaveFolderHelp(container) {
+  const help=container.querySelector('.save-folder');
+  const path=help.querySelector('input');
+  const status=help.querySelector('[role="status"]');
+  help.querySelector('[data-copy-save-folder]').addEventListener('click',async () => {
+    try {
+      await navigator.clipboard.writeText(path.value);
+      status.textContent='Folder path copied.';
+    } catch {
+      path.focus();
+      path.select();
+      status.textContent='Path selected. Press Ctrl + C to copy.';
+    }
+  });
+}
+
 function wikiSavePage() {
   main.innerHTML='<h1>Save Analyzer</h1><p>Choose your Melvor Idle 2 <code>.sav</code> or <code>.bak</code> to see your progress and compare what you can train or farm now.</p>'+
     '<p>Your save is processed in this tab. The wiki does not upload the file or keep a copy.</p>'+
     '<div class="save-controls"><label for="wiki-save-file">Save file</label><input type="file" id="wiki-save-file" accept=".sav,.bak,application/octet-stream">'+
-    '<button type="button" id="wiki-save-clear" hidden>Clear save</button></div>'+
+    '<button type="button" id="wiki-save-clear" hidden>Clear save</button></div>'+wikiSaveFolderHelp()+
     '<p role="status" aria-live="polite" id="wiki-save-status"></p><div id="wiki-save-report"></div>';
   const input=main.querySelector('#wiki-save-file'), clear=main.querySelector('#wiki-save-clear');
   const status=main.querySelector('#wiki-save-status'), report=main.querySelector('#wiki-save-report');
+  wikiBindSaveFolderHelp(main);
   let attempt=0;
   clear.addEventListener('click',()=>{
     ++attempt;
