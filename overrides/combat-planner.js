@@ -5,7 +5,8 @@ function combatOption(value,label) {
 function combatPlannerSetup(label) {
   const slots=byType.get('EquipmentSlot')||[];
   const list=(byType.get('Item')||[]).slice().sort((a,b)=>collator.compare(a.name,b.name));
-  const select=(key,name,options)=>'<label>'+escape(name)+'<select name="'+key+'">'+options+'</select></label>';
+  const select=(key,name,options)=>'<label><span class="combat-field-label"><span data-gear-icon="'+key+'" aria-hidden="true"></span>'+
+    escape(name)+'</span><select name="'+key+'">'+options+'</select></label>';
   const none=combatOption('','None');
   const items=type=>list.filter(x=>x.data.Capabilities?.['MelvorBase:Equipment']?.Type===type&&
     (bare(type)!=='Weapon'||x.data.Capabilities['MelvorBase:Weapon'])).map(x=>combatOption(x.id,x.name)).join('');
@@ -15,7 +16,8 @@ function combatPlannerSetup(label) {
     select('Weapon','Weapon',items('MelvorBase:Weapon'))+select('stance','Stance','')+
     select('food','Food',none+food)+select('tier','Auto Eat',[0,1,2,3].map(x=>combatOption(String(x),x?'Tier '+x:'Off')).join(''))+
     '</div><details open><summary>Combat levels</summary><div class="combat-fields">'+
-    ['Attack','Strength','Defence','Hitpoints','Ranged','Magic','Prayer','Slayer'].map(skill=>'<label>'+skill+
+    ['Attack','Strength','Defence','Hitpoints','Ranged','Magic','Prayer','Slayer'].map(skill=>'<label><span class="combat-field-label">'+
+      icon(publicNode('Skill',skill))+skill+'</span>'+
       '<input name="'+skill+'" type="number" min="1" max="99" step="1" value="20" required></label>').join('')+
     '</div></details><details><summary>Armour, ammunition, spell and prayer</summary><div class="combat-fields">'+
     slots.filter(x=>bare(x.id)!=='Weapon').map(x=>select(bare(x.id),x.name,none+items(x.data.FitsType))).join('')+
@@ -34,10 +36,29 @@ function combatPlannerTargets() {
       targets.push({node,area:area.node,category:area.category});
     }
   }
-  for (const node of byType.get('Enemy')||[]) if (!seen.has(node.id)) targets.push({node,category:'Other Monsters'});
+  for (const node of byType.get('Enemy')||[]) if (!seen.has(node.id)) targets.push({node,category:'All Monsters'});
   for (const {node,category} of areas.filter(x=>x.node.type==='Dungeon')) targets.push({node,category,kind:'dungeon'});
   for (const master of idleSlayerPools(areas)) targets.push({node:master.node,category:'Slayer Masters',kind:'slayer',master});
   return targets;
+}
+
+function combatPlannerGroups() {
+  return ['Combat Areas','Slayer Zones','Slayer Masters','Dark Areas','Standard Dungeons','All Monsters','Quest Encounters'];
+}
+
+function combatPlannerEncounterList(targets,allMonsters) {
+  const indices=new Map(targets.map((target,i)=>[target,i]));
+  const button=target=>'<button type="button" class="combat-target" data-encounter="'+indices.get(target)+'">'+
+    icon(target.node)+escape(target.node.name)+'</button>';
+  return '<section class="combat-encounters"><h3>Encounter list</h3>'+
+    combatPlannerGroups().map((group,i)=>{
+      const list=group==='All Monsters'?allMonsters:targets.filter(x=>x.category===group);
+      if (!list.length) return '';
+      const byLocation=Map.groupBy(list,target=>group==='All Monsters'?null:target.area||null);
+      return '<details'+(i===0?' open':'')+'><summary>'+escape(group)+' <span class="subtle">('+list.length+')</span></summary>'+
+        [...byLocation].map(([area,entries])=>(area?'<h4>'+link(area,true)+'</h4>':'')+
+          '<ul>'+entries.map(target=>'<li>'+button(target)+'</li>').join('')+'</ul>').join('')+'</details>';
+    }).join('')+'</section>';
 }
 
 function combatSlayerRewards(enemy) {
@@ -113,7 +134,7 @@ function combatPlannerChart(rows,metric,compare) {
     '<meter min="0" max="'+max+'" value="'+value+'" aria-label="Setup '+label+'">'+value+'</meter>'+
     '<small>'+wikiSaveNumber(value)+'</small></span>';
   return '<section class="combat-chart" aria-label="Top ranked targets"><h2>Top ranked targets</h2>'+chart.map(({row,index})=>
-    '<div><button type="button" class="combat-target" data-result="'+index+'">'+escape(row.target.node.name)+'</button>'+
+    '<div><button type="button" class="combat-target" data-result="'+index+'">'+icon(row.target.node)+escape(row.target.node.name)+'</button>'+
     bar('A',row.rateA[metric])+(compare?bar('B',row.rateB?.[metric]):'')+'</div>').join('')+'</section>';
 }
 
@@ -200,30 +221,46 @@ function combatPlannerDetails(target,A,B,buildA,buildB,metric,xpSkill) {
       '<button type="button" data-upgrades="owned">Compare owned weapons</button></div><div id="combat-upgrade-results" aria-live="polite"></div>');
 }
 
-function combatPlannerPage(params) {
-  const targets=combatPlannerTargets(), categories=[...new Set(targets.map(x=>x.category))];
-  main.innerHTML='<h1>Combat Planner</h1><p>Compare setups and rank encounters by XP, kills, loot or sampled deaths. Use <a href="#/idle">Can I Idle?</a> for the separate worst-case damage check.</p>'+
-    '<form id="combat-planner"><div class="combat-fields">'+
-    '<label>Import save into setup A<input type="file" id="combat-import" accept=".sav,.bak"></label><span role="status" id="combat-import-status"></span>'+
+function combatPlannerPage(container,params,save) {
+  const targets=combatPlannerTargets(), categories=combatPlannerGroups();
+  const byMonster=targets.filter(x=>x.node.type==='Enemy');
+  const allMonsters=[...new Map(byMonster.slice().reverse().map(x=>[x.node.id,x])).values()]
+    .sort((a,b)=>collator.compare(a.node.name,b.node.name));
+  container.innerHTML='<p>Compare setups and rank encounters by XP, kills, loot or sampled deaths. Use <a href="#/idle">Can I Idle?</a> for the worst-case damage check.</p>'+
+    '<p role="status" id="combat-import-status"></p><form id="combat-planner"><div class="combat-fields">'+
     '<label class="combat-toggle"><input type="checkbox" name="compare"> Compare setup B</label>'+
-    '<button type="button" id="combat-copy">Copy A to B</button></div>'+wikiSaveFolderHelp()+
+    '<button type="button" id="combat-copy">Copy A to B</button></div>'+
     '<div class="combat-setups">'+combatPlannerSetup('A')+combatPlannerSetup('B')+'</div>'+
     '<fieldset><legend>Targets and ranking</legend><div class="combat-fields">'+
     '<label>Category<select name="category">'+combatOption('','All targets')+categories.map(x=>combatOption(x,x)).join('')+'</select></label>'+
+    '<label>Location or master<select name="encounter-location"></select></label>'+
     '<label>Search<input type="search" name="query" placeholder="Monster, dungeon or master"></label>'+
     '<label>Rank by<select name="metric">'+[['xp','XP/h'],['kills','Kills or clears/h'],['value','Gold + loot value/h'],['net','Value after supplies/h'],['slayerCoins','Slayer Coins/h'],['deaths','Fewest sampled deaths/h']].map(x=>combatOption(...x)).join('')+'</select></label>'+
     '<label>XP skill<select name="xpSkill">'+combatOption('','All earned XP')+['Attack','Strength','Defence','Hitpoints','Ranged','Magic','Slayer'].map(x=>combatOption(x,x)).join('')+'</select></label>'+
     '<button type="submit">Compare targets</button></div></fieldset></form>'+
+    combatPlannerEncounterList(targets,allMonsters)+
     '<p id="combat-run-status" role="status"></p><div id="combat-results"></div><div id="combat-target-detail"></div>'+
-    '<section><h2>Simulation coverage</h2><p>Normal-attack trials start at full HP and use unlimited selected food. Accuracy, protection, armour, combat triangle, Auto Eat and respawn time are modeled. Zero deaths in the sample does not establish idle safety. Equipment choices are available for theorycrafting, including gear you may need to unlock.</p>'+
-    '<p>Special attacks, ward, effects and unsupported bonuses use a normal-attack benchmark. Dungeon and Slayer results combine individual fight rates; they do not give a death rate for a complete run. Costs use base sale prices and exclude prayer points and charge savings.</p>'+
-    '<p>The independently developed <a href="https://www.nexusmods.com/melvoridle2/mods/39">Combat Simulator 2</a> runs fights inside the desktop game. Check its release compatibility before using it.</p></section>';
-  const form=main.querySelector('#combat-planner'), configs=[...form.querySelectorAll('.combat-setup')];
-  wikiBindSaveFolderHelp(form);
-  const feedback=main.querySelector('#combat-run-status'), results=main.querySelector('#combat-results'), detail=main.querySelector('#combat-target-detail');
-  const importStatus=main.querySelector('#combat-import-status');
+    '<section><h3>Simulation coverage</h3><p>Normal-attack trials start at full HP and use unlimited selected food. Accuracy, protection, armour, combat triangle, Auto Eat and respawn time are modeled. Zero deaths in the sample does not establish idle safety. Equipment choices include gear you may need to unlock.</p>'+
+    '<p>Special attacks, ward, effects and unsupported bonuses use a normal-attack benchmark. Dungeon and Slayer results combine individual fight rates; they do not give a death rate for a complete run. Costs use base sale prices and exclude prayer points and charge savings.</p></section>';
+  const form=container.querySelector('#combat-planner'), configs=[...form.querySelectorAll('.combat-setup')];
+  const feedback=container.querySelector('#combat-run-status'), results=container.querySelector('#combat-results'), detail=container.querySelector('#combat-target-detail');
+  const importStatus=container.querySelector('#combat-import-status');
   const field=(root,name)=>root.querySelector('[name="'+name+'"]');
   field(form,'query').value=params.get('q')||'';
+  const locationFilter=field(form,'encounter-location'), categoryFilter=field(form,'category');
+  const locationFor=row=>row.area||(row.kind?row.node:null);
+  function pool(allLocations=false) {
+    const name=categoryFilter.value;
+    return name==='All Monsters'?(allLocations?byMonster:allMonsters):name?targets.filter(x=>x.category===name):targets;
+  }
+  function locations(picked='') {
+    const nodes=[...new Map(pool(true).map(locationFor).filter(Boolean).map(node=>[node.id,node])).values()]
+      .sort((a,b)=>collator.compare(a.name,b.name));
+    locationFilter.innerHTML=combatOption('','All locations')+nodes.map(node=>combatOption(node.id,node.name)).join('');
+    if (nodes.some(node=>node.id===picked)) locationFilter.value=picked;
+  }
+  locations();
+  let images={};
   function updateStances(root) {
     const weapon=publicNode('Item',field(root,'Weapon').value)?.data.Capabilities?.['MelvorBase:Weapon'];
     const ids=publicNode('WeaponType',weapon?.Type)?.data.Stances||[];
@@ -241,6 +278,21 @@ function combatPlannerPage(params) {
       return item?[[slot.id,item]]:[];
     }));
     const select=(type,name)=>publicNode(type,field(root,name).value);
+    const icons=new Map([...slots].map(([id,node])=>[bare(id),node]));
+    for (const [key,type] of [['food','Item'],['stance','AttackStance'],['spell','MagicSpell'],['prayer','Prayer'],['imbuement','Imbuement']]) {
+      icons.set(key,select(type,key));
+    }
+    for (const place of root.querySelectorAll('[data-gear-icon]')) {
+      const src=images[icons.get(place.dataset.gearIcon)?.image];
+      const img=place.firstElementChild;
+      if (src && img?.getAttribute('src')!==src) {
+        const image=document.createElement('img');
+        image.className='icon';
+        image.alt='';
+        image.src=src;
+        place.replaceChildren(image);
+      } else if (!src && img) place.replaceChildren();
+    }
     const build=combatPlannerBuild({levels,slots,equipment:[...slots.values()],weapon:select('Item','Weapon'),stance:select('AttackStance','stance'),
       food:select('Item','food'),tier:+field(root,'tier').value,spell:select('MagicSpell','spell'),
       prayer:select('Prayer','prayer'),imbuement:select('Imbuement','imbuement')});
@@ -249,13 +301,21 @@ function combatPlannerPage(params) {
         build.unsupported.size?'Partial model':''].filter(Boolean).join(' · ');
     return build;
   }
-  configs.forEach((root,i)=>{
+  function defaultSetup(root,i) {
+    for (const el of root.querySelectorAll('input, select')) el.value=el.defaultValue??el.options?.[0]?.value??'';
     field(root,'Weapon').value=namespaced(i?'CopperSword':'StoneSword');
     field(root,'food').value=namespaced('Lobster');
     field(root,'tier').value='1';
     updateStances(root);
     update(root);
-  });
+  }
+  configs.forEach(defaultSetup);
+  if(location.protocol!=='file:') import('./combat-icons.js').then(module=>{
+    if (form.isConnected) {
+      images=module.default;
+      configs.forEach(update);
+    }
+  }).catch(()=>{});
   const compare=field(form,'compare');
   configs[1].hidden=true;
   form.querySelector('#combat-copy').addEventListener('click',()=>{
@@ -273,12 +333,13 @@ function combatPlannerPage(params) {
   form.addEventListener('input',event=>{
     const root=event.target.closest('.combat-setup');
     if (event.target===compare) configs[1].hidden=!compare.checked;
+    if (event.target===categoryFilter) locations();
     if (root) {
       if (event.target.name==='Weapon') updateStances(root);
       update(root);
     }
   });
-  let importVersion=0, owned=null, selectedTarget, selectedBuild;
+  let run=0, owned=null, selectedTarget, selectedBuild, jumpToResults=false;
   detail.addEventListener('click',event=>{
     const filter=event.target.closest('[data-upgrades]')?.dataset.upgrades;
     if (!filter || !selectedTarget || !selectedBuild) return;
@@ -286,14 +347,20 @@ function combatPlannerPage(params) {
     if (filter==='owned'&&!owned) { output.textContent='Import a save to compare owned weapons.'; return; }
     output.innerHTML=combatWeaponRecommendations(selectedTarget,selectedBuild,filter==='owned'?owned:null);
   });
-  form.querySelector('#combat-import').addEventListener('change',async event=>{
-    const file=event.target.files[0], importId=++importVersion;
-    if (!file) return;
-    if (file.size<16||file.size>8*1024*1024) { importStatus.textContent='Choose a complete save under 8 MB.'; return; }
-    importStatus.textContent='Reading save in this tab…';
-    try {
-      const save=wikiSaveParse(await wikiSaveInflate(file));
-      if (!form.isConnected||importVersion!==importId) return;
+  function loadSave(save) {
+      ++run;
+      results.replaceChildren();
+      detail.replaceChildren();
+      feedback.textContent='';
+      selectedTarget=selectedBuild=null;
+      if (!save) {
+        owned=null;
+        configs.forEach(defaultSetup);
+        compare.checked=false;
+        configs[1].hidden=true;
+        importStatus.textContent='';
+        return;
+      }
       owned=new Set([...save.bank.flatMap(tab=>tab.items.filter(x=>!x.placeholder&&x.quantity>0).map(x=>x.id)),
         ...[...save.equipment.slots.values()].map(x=>x.id)]);
       const root=configs[0];
@@ -311,23 +378,33 @@ function combatPlannerPage(params) {
       field(root,'tier').value=String([3,2,1].find(t=>save.shop.get(namespaced('AutoEat'+t))>0)||0);
       updateStances(root);
       update(root);
-      importStatus.textContent='Setup A imported locally. Check your stance and select a prayer if needed.';
-    } catch {
-      if (form.isConnected&&importVersion===importId) importStatus.textContent='Could not read this save. Use a version 31 or 32 .sav or .bak.';
-    } finally { if (importVersion===importId) event.target.value=''; }
+      importStatus.textContent='Setup A loaded from your save. Check your stance and select a prayer if needed.';
+  }
+  if (save) loadSave(save);
+  container.querySelector('.combat-encounters').addEventListener('click',event=>{
+    const button=event.target.closest('[data-encounter]');
+    if (!button) return;
+    const target=targets[Number(button.dataset.encounter)];
+    categoryFilter.value=target.category;
+    locations(locationFor(target)?.id);
+    field(form,'query').value=target.node.name;
+    jumpToResults=true;
+    form.requestSubmit();
   });
   form.addEventListener('submit',event=>{
     event.preventDefault();
+    const jump=jumpToResults;
+    jumpToResults=false;
     const A=update(configs[0]), B=compare.checked?update(configs[1]):null;
     results.replaceChildren(); detail.replaceChildren();
     if(A.invalid.length||B?.invalid.length){feedback.textContent='Check the setup fields marked above.';return;}
     feedback.textContent='Comparing targets…';
-    const category=field(form,'category').value, query=field(form,'query').value.trim().toLowerCase();
+    const current=++run, area=locationFilter.value, targetPool=pool(Boolean(area)), query=field(form,'query').value.trim().toLowerCase();
     const xpSkill=field(form,'xpSkill').value, metric=field(form,'metric').value, label=field(form,'metric').selectedOptions[0].textContent;
     requestAnimationFrame(()=>{
-      if (!form.isConnected) return;
+      if (!form.isConnected || current!==run) return;
       const cacheA=new Map(),cacheB=new Map();
-      const rows=targets.filter(target=>(!category||target.category===category)&&
+      const rows=targetPool.filter(target=>(!area||locationFor(target)?.id===area)&&
         (target.node.name+' '+(target.area?.name||'')).toLowerCase().includes(query)).map(target=>{
         const a=combatPlannerRun(target,A,cacheA),b=B?combatPlannerRun(target,B,cacheB):null;
         return {target,a,b,rateA:combatPlannerRate(a,A,xpSkill),rateB:B?combatPlannerRate(b,B,xpSkill):null};
@@ -342,8 +419,8 @@ function combatPlannerPage(params) {
         rows.map(({target,a,b,rateA,rateB},i)=>{
           const av=rateA?.[metric],bv=rateB?.[metric];
           const coverage=data=>!data?'Unavailable':data.benchmark?'Benchmark':'96 trials';
-          return ['<button type="button" class="combat-target" data-result="'+i+'">'+escape(target.node.name)+'</button>',
-            target.area?link(target.area):escape(target.category),coverage(a)+(B?' / '+coverage(b):''),score(av),
+          return ['<button type="button" class="combat-target" data-result="'+i+'">'+icon(target.node)+escape(target.node.name)+'</button>',
+            target.area?link(target.area,true):escape(target.category),coverage(a)+(B?' / '+coverage(b):''),score(av),
             ...(B?[score(bv),av==null||bv==null?'—':score(bv-av)]:[])];
         }),true);
       results.onclick=event=>{
@@ -355,6 +432,8 @@ function combatPlannerPage(params) {
         detail.innerHTML=combatPlannerDetails(target,a,b,A,B,metric,xpSkill);
         detail.scrollIntoView({block:'start'});
       };
+      if (jump) results.scrollIntoView({block:'start'});
     });
   });
+  return {loadSave};
 }

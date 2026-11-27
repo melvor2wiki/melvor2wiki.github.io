@@ -60,6 +60,12 @@ with zipfile.ZipFile(io.BytesIO(patch_bytes)) as patch:
     payload['images'].update(delta['imagePaths'])
 data_path.write_text(prefix + '= ' + json.dumps(json.dumps(payload, separators=(',', ':'))) + ';\n', encoding='utf-8')
 
+# One fixed bundle of 40 px icons keeps imported equipment choices out of request URLs.
+icon_bytes = (root / 'release/combat-icons-26886380.zip').read_bytes()
+assert hashlib.sha256(icon_bytes).hexdigest() == 'c7213ceb6ca40f804b75a06534f3f8ac865e12812a2f9832b0d0357ef8d3cade'
+with zipfile.ZipFile(io.BytesIO(icon_bytes)) as icons:
+    (out / 'combat-icons.js').write_bytes(icons.read('combat-icons.js'))
+
 # Reader-facing form changes are maintained separately from the large game-data release.
 app_path=out/'app.js'
 app=app_path.read_text(encoding='utf-8')
@@ -209,7 +215,6 @@ other_nav = '    navGroup("quests"), navGroup("shops"), navGroup("mastery"), nav
 assert app.count(other_nav) == 1
 app = app.replace(other_nav, other_nav + """    moneyNavLink(),
     '<a class="row-link" href="#/idle">' + combatSwordsIcon() + 'Can I Idle?</a>',
-    '<a class="row-link" href="#/combat-planner">Combat Planner</a>',
     '<a class="row-link" href="#/save">Save Analyzer</a>',
 """, 1)
 app = app.replace("escape(payload.build) + '</div>'", "escape(payload.build) + ' · <a href=\"#/patch\">' + escape(payload.gameVersion) + '</a></div>'", 1)
@@ -224,7 +229,7 @@ html=out/'index.html'
 html.write_text(html.read_text(encoding='utf-8').replace("connect-src 'none'",'connect-src https://ijmztvsjdzypvxnlicbf.supabase.co').replace('<strong>Melvor 2 Wiki</strong>','<strong>MELVOR 2</strong>'),encoding='utf-8')
 markup=html.read_text(encoding='utf-8')
 markup,count=re.subn(r'(<div class="sidebar-group"><h3>Tools</h3>).*?(<a href="https://db\.melvor\.aevv\.net/live"[^<]*</a>)(</div>)',
-    r'\1\2<a href="#/idle">Can I Idle?</a><a href="#/combat-planner">Combat Planner</a><a href="#/save">Save Analyzer</a><a href="#/patch">Patch Notes</a>\3', markup)
+    r'\1\2<a href="#/idle">Can I Idle?</a><a href="#/save">Save Analyzer</a><a href="#/patch">Patch Notes</a>\3', markup)
 assert count == 1, 'Unexpected sidebar tools markup'
 html.write_text(markup,encoding='utf-8')
 feedback=json.loads((root/'feedback-config.json').read_text(encoding='utf-8-sig'))

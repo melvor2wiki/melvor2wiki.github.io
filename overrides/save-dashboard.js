@@ -157,18 +157,34 @@ function wikiSaveLuck(save,analysis) {
 
 function wikiSaveTimeHistory(save) {
   const get = (id,key) => save.stats.get(id)?.values.get('MelvorBase:'+key)||0;
-  const rows = [...save.stats.keys()].filter(id=>get(id,id+'TotalTimeSpent')>0).map(id=>[
+  const totalTime=id=>get(id,id+'TotalTimeSpent');
+  const rows = [...save.stats.keys()].filter(id=>totalTime(id)>0).sort((a,b)=>totalTime(b)-totalTime(a)).map(id=>[
     publicNode('Skill',id)?wikiSaveRef('Skill',id):escape(human(id)),
-    wikiSaveDuration(get(id,id+'TotalTimeSpent')/1000),
-    wikiSaveDuration(get(id,id+'OnlineTimeSpent')/1000),
-    wikiSaveDuration(get(id,id+'OfflineTimeSpent')/1000)
+    wikiSaveRecordedTime(totalTime(id)),
+    wikiSaveRecordedTime(get(id,id+'OnlineTimeSpent')),
+    wikiSaveRecordedTime(get(id,id+'OfflineTimeSpent'))
   ]);
   const total = get('CharacterStatistics','TotalTrainingTime');
   if (!total && !rows.length) return '';
   return wikiSaveSection('save-time','Time spent',
-    (total?'<p>Recorded training time <strong>'+wikiSaveDuration(total/1000)+'</strong>. Idling without an action <strong>'+
-      wikiSaveDuration(get('CharacterStatistics','TotalNothingTime')/1000)+'</strong>.</p>':'')+
-    (rows.length?table(['Activity','Total','Online','Offline'],rows,true):''));
+    (total?'<p>Recorded training time <strong>'+wikiSaveRecordedTime(total).html+'</strong>. Idling without an action <strong>'+
+      wikiSaveRecordedTime(get('CharacterStatistics','TotalNothingTime')).html+'</strong>.</p>':'')+
+    (rows.length?formatV2OriginalTable(['Activity','Total','Online','Offline'],rows,true)
+      .replace('<th scope="col"><button type="button" class="sort-head" data-sort-column="1"',
+        '<th scope="col" aria-sort="descending"><button type="button" class="sort-head" data-sort-column="1"'):''));
+}
+
+function wikiSaveRecordedTime(ms) {
+  let seconds=Math.floor(Math.abs(ms)/1000);
+  const values=[];
+  for (const [unit,label] of [[86400,'d'],[3600,'h'],[60,'min'],[1,'s']]) {
+    const amount=Math.floor(seconds/unit);
+    if (amount) values.push([amount,label]);
+    seconds%=unit;
+  }
+  if (values.length>3) values.pop();
+  const html=(ms<0?'−':'')+(values.map(([amount,label])=>wikiSaveNumber(amount)+' '+label).join(' ')||(ms?'&lt;1 s':'0 s'));
+  return {numeric:true,sort:ms,html};
 }
 
 function wikiSaveInventory(save,profile) {
@@ -237,12 +253,15 @@ function wikiSaveProgress(save,profile) {
 
 function wikiSaveStats(save) {
   const title=id=>escape(human(saveShort(id)));
+  const timeCounter=/(?:TotalTimeSpent|OnlineTimeSpent|OfflineTimeSpent|StunnedTimeSpent|(?:Total|Online|Offline)(?:Training|Nothing)Time|CombatTimeSpent(?:Fighting|Spawning|Paused)|FiremakingBonfireTime(?:FromLogs|FromFires)?|RanchingAnimalTimeSpentAliveStatistic)$/;
+  const recorded=(id,value)=>timeCounter.test(id)
+    ? wikiSaveRecordedTime(value) : numericCell(value);
   const values=[...save.stats].map(([entity,stats])=>{
-    const rows=[...stats.values].filter(([,value])=>value!==0).map(([id,value])=>[title(id),numericCell(value)]);
+    const rows=[...stats.values].filter(([,value])=>value!==0).map(([id,value])=>[title(id),recorded(id,value)]);
     const details=[...stats.groups].filter(([,entries])=>entries.size).map(([id,entries])=>
       wikiSaveDetails(title(id),table(['Entry','Recorded value'],[...entries].map(([key,value])=>{
         const node=publicNode('Item',key)||publicNode('Enemy',key)||publicNode('Currency',key);
-        return [node?link(node,true):title(key),numericCell(value)];
+        return [node?link(node,true):title(key),recorded(id,value)];
       }),true))).join('');
     return rows.length||details?wikiSaveDetails(title(entity),(rows.length?table(['Statistic','Recorded value'],rows,true):'')+details):'';
   }).join('');
@@ -300,22 +319,45 @@ function wikiBindSaveFolderHelp(container) {
   });
 }
 
-function wikiSavePage() {
+function wikiSavePage(params,legacyCombat=false) {
   main.innerHTML='<h1>Save Analyzer</h1><p>Choose your Melvor Idle 2 <code>.sav</code> or <code>.bak</code> to see your progress and compare what you can train or farm now.</p>'+
     '<p>Your save is processed in this tab. The wiki does not upload the file or keep a copy.</p>'+
     '<div class="save-controls"><label for="wiki-save-file">Save file</label><input type="file" id="wiki-save-file" accept=".sav,.bak,application/octet-stream">'+
     '<button type="button" id="wiki-save-clear" hidden>Clear save</button></div>'+wikiSaveFolderHelp()+
-    '<p role="status" aria-live="polite" id="wiki-save-status"></p><div id="wiki-save-report"></div>';
+    '<p role="status" aria-live="polite" id="wiki-save-status"></p>'+
+    '<p><a href="#save-combat-planner" id="save-combat-jump">Open Combat Planner</a></p>'+
+    '<div id="wiki-save-report"></div><details id="save-combat-planner"><summary>Combat Planner</summary><div></div></details>';
   const input=main.querySelector('#wiki-save-file'), clear=main.querySelector('#wiki-save-clear');
   const status=main.querySelector('#wiki-save-status'), report=main.querySelector('#wiki-save-report');
   wikiBindSaveFolderHelp(main);
+  const planner=main.querySelector('#save-combat-planner');
+  let activeSave=null, combat;
+  function openPlanner() {
+    planner.open=true;
+    combat ||= combatPlannerPage(planner.lastElementChild,params,activeSave);
+  }
+  planner.addEventListener('toggle',()=>{if(planner.open) openPlanner();});
+  main.querySelector('#save-combat-jump').addEventListener('click',event=>{
+    event.preventDefault();
+    openPlanner();
+    planner.scrollIntoView({block:'start'});
+  });
+  if (legacyCombat||params.get('view')==='combat') {
+    openPlanner();
+    requestAnimationFrame(()=>planner.scrollIntoView({block:'start'}));
+  }
   let attempt=0;
+  function resetSave() {
+    if(activeSave) combat?.loadSave(null);
+    activeSave=null;
+    report.replaceChildren();
+  }
   clear.addEventListener('click',()=>{
     ++attempt;
     input.value='';
     clear.hidden=true;
     status.textContent='';
-    report.replaceChildren();
+    resetSave();
   });
   report.addEventListener('click',event=>{
     const href=event.target.closest('.save-contents a')?.getAttribute('href');
@@ -325,7 +367,7 @@ function wikiSavePage() {
   });
   input.addEventListener('change',async () => {
     const file=input.files[0], current=++attempt;
-    report.replaceChildren();
+    resetSave();
     if(!file) { clear.hidden=true; status.textContent=''; return; }
     clear.hidden=false;
     if(file.size<16||file.size>8*1024*1024) { status.textContent='Choose a Melvor Idle 2 .sav or .bak file under 8 MB.'; return; }
@@ -340,6 +382,8 @@ function wikiSavePage() {
       // Even a request for item art would reveal which records the save contains.
       for (const image of template.content.querySelectorAll('img')) image.remove();
       report.replaceChildren(template.content);
+      activeSave=save;
+      combat?.loadSave(save);
       status.textContent='Save analyzed.';
     } catch(error) {
       if(current!==attempt||!report.isConnected) return;

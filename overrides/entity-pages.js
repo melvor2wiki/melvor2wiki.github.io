@@ -250,7 +250,7 @@ function publicMonster(n) {
   const tasks=entityV2Tasks(n);if(tasks)sections.push(tasks);
   const info=[['Category','Monster'],['Combat Style',s.maxHits.map(h=>escape(h.style)).filter((x,i,a)=>a.indexOf(x)===i).join(', ')],['Damage Type',escape(human(n.data.DamageType))],['Element',escape(human(n.data.Element))]];
   if(entityV2HasRequirements(n))info.push(['Requirements',entityV2Requirements(n)]);
-  entityV2Render(n,info,sections,'<p><a href="'+escape(route('combat-planner',{q:n.name}))+'">Compare loadouts for this monster</a></p>');return true;
+  entityV2Render(n,info,sections,'<p><a href="'+escape(route('save',{view:'combat',q:n.name}))+'">Compare loadouts for this monster</a></p>');return true;
 }
 function wikiPetPage(n) {
   const d=n.data.Trigger?.Data || {}, skill=publicNode('Skill',d.Component?.Entity), sections=[];
